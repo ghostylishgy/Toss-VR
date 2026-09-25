@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.7 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.8 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.8 更新（2026-09-25 晚，P0 官方文档复核）：① Unity 6000.0.66f2+ 安装必须包含 Android Build Support、Android SDK & NDK Tools、OpenJDK；② OpenXR Plugin 锁定 1.17.0+；③ Meta XR Simulator v207 改为 standalone Windows runtime，旧 Unity Simulator package 不得作为新项目安装路径；④ P0 明确要求切换 Meta VR Glasses profile 后退出并重新进入 Play mode；⑤ P0 只验证环境和 Look-and-Pinch，不引入业务代码。
 >
 > v0.7 更新（2026-09-25 晚，合并“Toss 交互方案评审”）：① 正式加入核心交互状态机 `Spawn → Ready → Grabbed → Armed → Flight → Catch/Recovery → Reveal → Ready`；② 明确 Catch 是奖励而不是流程门槛，漏接必须 graceful recovery / auto-settle；③ 新增 Comfort Envelope，约束硬币高度、速度、角速度、生成/回收位置与舒适 FOV；④ 将状态机与舒适区作为后续 Gemini P2/P4 的工程约束。
 >
@@ -60,11 +62,14 @@
 
 - SDK：**v207**（官方博客明确：VR Glasses 2027 春季才发货，但 v207 SDK 现在即可下载并开始 build/test）。
 - 专属文档页：`Support Meta VR Glasses`（Unity / Unreal 双路径）、`Get started with Meta VR Glasses`、`Test your app for Meta VR Glasses`、`What's new in Meta VR Glasses`。
-- 主引擎：**Unity 6000.0.66f2+**。
+- 主引擎：**Unity 6000.0.66f2+**。P0 为保证复现优先安装 **6000.0.66f2**，除非该版本在 Unity Hub 不可取得或 Meta 官方后续明确要求更高版本。
+- Unity Hub 模块：**Android Build Support + Android SDK & NDK Tools + OpenJDK**（Meta 官方 Unity 前置要求）。
 - Unity 包：`com.meta.xr.sdk.core` + `com.meta.xr.sdk.interaction` + `com.meta.xr.sdk.interaction.ovr`（Interaction SDK OVR 路径）。
+- Unity OpenXR Plugin：**`com.unity.xr.openxr` 1.17.0+**。
 - 备选：Unreal（Meta Oculus-VR fork，UE 5.0+），比赛版暂不采用。
 - 构建：IL2CPP + ARM64；Hand Tracking Support 选 Hands Only；Eye Tracking permission 按需声明。
-- 无真机开发：Meta XR Simulator（Unity/Unreal，内置 VR Glasses profile，可用笔记本摄像头追踪手）、Meta Spatial Simulator、Immersive Web Emulator；Quest 3/3S 可做真机手势测试，但不是启动项目的前置条件。
+- 无真机开发：**Meta XR Simulator v207 standalone runtime**（Windows 独立安装，内置 VR Glasses profile；v207 支持 Look and Pinch 与 camera-driven hand tracking）。旧 `com.meta.xr.simulator` Unity package 已 deprecated，P0 不安装旧包。Quest 3/3S 可做真机手势测试，但不是启动项目的前置条件。
+- Simulator 切换到 **Meta VR Glasses** profile 后，必须退出并重新进入 Unity Play mode，使 OpenXR instance 重新绑定目标 profile；默认 profile 为 Quest 3，不能只看“Simulator 能启动”就视为 P0 通过。
 - 自检工具：Device Readiness Check（检查 controller 依赖、FOV、controller-only input 等问题，并输出 readiness report）。
 - 分发规则：对没有手柄的 VR Glasses 用户，hands-compatible content 会优先被展示；因此 Toss 比赛版坚持 hands-first / controller-free。
 
@@ -311,7 +316,7 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 
 只有前一级达到验收条件才进入下一级：
 
-- **P0 Environment**：Unity + Meta XR SDK + Interaction SDK + VR Glasses Profile + Simulator 跑通。
+- **P0 Environment**：Unity 6000.0.66f2（含 Android Build Support / SDK&NDK / OpenJDK）+ Meta XR SDK v207 + Interaction SDK + OpenXR 1.17.0+ + standalone Meta XR Simulator v207 + VR Glasses Profile + Look-and-Pinch 跑通。
 - **P1 Coin**：真实比例硬币模型、Rigidbody、重力、旋转、空间位置。
 - **P2 Guaranteed Toss**：按 §5.4 实现 `Ready → Grabbed → Armed → Flight`，并满足 §5.5 Comfort Envelope。
 - **P3 Result**：Heads/Tails RNG 契约 + 视觉/音效结果反馈。
@@ -390,6 +395,8 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-008 | 2026-09-25 | **Catch 是奖励，不是完成一次 Toss 的门槛**；漏接必须 graceful recovery / auto-settle | Active |
 | D-009 | 2026-09-25 | 核心状态机固定为 `Spawn → Ready → Grabbed → Armed → Flight → Catch/Recovery → Reveal → Ready` | Active |
 | D-010 | 2026-09-25 | Toss 必须受参数化 **Comfort Envelope** 约束；视觉连续性与舒适 FOV 优先于无限制物理自由度 | Active |
+| D-011 | 2026-09-25 | P0 使用 **standalone Meta XR Simulator v207**；不安装 deprecated 的旧 Unity Simulator package | Active |
+| D-012 | 2026-09-25 | P0 锁定 Unity 6000.0.66f2 + Android modules，并要求 OpenXR Plugin 1.17.0+ | Active |
 
 ---
 
@@ -399,13 +406,14 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 
 下一份给 Gemini 的正式工程任务必须只覆盖：
 
-- Unity 指定版本
-- Meta XR SDK / Interaction SDK 安装与版本确认
-- VR Glasses Device Profile
-- Meta XR Simulator 可启动
-- Hands-only / Look-and-Pinch 基础输入可观察
-- Device Readiness Check 可运行
-- 最小测试场景 build/run
+- Unity **6000.0.66f2**，并确认 Android Build Support / Android SDK & NDK Tools / OpenJDK 已安装
+- Meta XR SDK v207 / Interaction SDK 三个指定 package 安装并确认版本
+- OpenXR Plugin **1.17.0+**
+- standalone Meta XR Simulator **v207** 安装并可作为 OpenXR runtime 激活
+- Simulator 中选择 **Meta VR Glasses** Device Profile，并在切换后重启 Play mode
+- Hands Only / Look-and-Pinch 基础输入可观察（至少 gaze + pinch）
+- Device Readiness Check 可运行并记录结果
+- 最小测试场景能在 Editor Play mode + VR Glasses profile 下运行
 
 **P0 不做硬币、不做物理、不做成就、不做 Decision Mode。**
 
