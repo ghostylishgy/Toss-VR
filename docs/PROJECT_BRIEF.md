@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.9 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.10 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.10 更新（2026-09-25 晚，Network Gate 实机审计）：① 当前 Clash Verge Rev 使用 Rule + TUN，所有未显式直连流量由 TUN 接管；② Unity 官方下载域名与 `dl.google.com` 当前误走 `SDK DNS` 普通机场，违反大文件 DIRECT 策略；③ 物理直连 TCP 已验证可用，问题仅在规则优先级；④ Webshare 固定住宅代理与开发域名完全隔离；⑤ P0 必须先加入 Unity / Android 下载显式 DIRECT 规则并复核，Network Gate PASS 后方可下载。
 >
 > v0.9 更新（2026-09-25 晚，P0 Network Gate）：① 开发下载分流正式定案：Unity/Android/UPM 大文件一律 DIRECT；Meta 开发者站点/SDK/Simulator 如直连失败则走普通机场节点；Webshare 固定住宅 IP 禁止用于开发下载；② 在任何大型下载前必须先审计 Clash/TUN、系统代理、WinHTTP、代理环境变量和实际路由；③ 无法确认路由时不得开始安装。
 >
@@ -92,6 +94,26 @@
 4. 验证 Unity / Google Android / Unity Package CDN 的实际路由为 DIRECT。
 5. 验证 Meta 相关域名若需代理，实际走普通机场节点而非固定住宅 IP。
 6. 无法确认实际路由时，**停止下载并返回审计结果，不得凭猜测继续。**
+
+#### 当前实机审计结果（2026-09-25）
+
+- Clash Verge Rev：Rule 模式，TUN 开启；系统代理关闭，但 TUN 接管大部分应用流量。
+- Unity 域名当前无显式 DIRECT，最终命中 `MATCH,SDK DNS`，会消耗普通机场流量。
+- `dl.google.com` 当前被 `DOMAIN-KEYWORD,google,SDK DNS` 提前命中，也会消耗普通机场流量。
+- 物理网卡对 Unity CDN / Google Android 下载端点的 TCP 443 直连已实测成功，因此无需为这些大文件使用代理。
+- Meta 开发者与 Oculus/CDN 当前走普通 `SDK DNS`，可接受；未命中 Webshare。
+- Webshare 固定住宅节点仅绑定 `AI-Fixed-IP` 特定规则，不存在 Unity / Meta 开发下载泄漏。
+
+Network Gate 修正规则（必须置于通用 Google / MATCH 规则之前）：
+
+```yaml
+- DOMAIN-SUFFIX,unity.com,DIRECT
+- DOMAIN-SUFFIX,unity3d.com,DIRECT
+- DOMAIN-SUFFIX,unitychina.cn,DIRECT
+- DOMAIN,dl.google.com,DIRECT
+```
+
+应用规则后必须重新验证实际命中与小请求出口；未验证通过不得启动 Unity / Android 大型下载。
 
 ---
 
@@ -419,6 +441,8 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-012 | 2026-09-25 | P0 锁定 Unity 6000.0.66f2 + Android modules，并要求 OpenXR Plugin 1.17.0+ | Active |
 | D-013 | 2026-09-25 | P0 下载网络策略：Unity/Android/UPM 全部 DIRECT；Meta 必要时普通机场代理；Webshare 固定住宅 IP 禁止开发下载 | Active |
 | D-014 | 2026-09-25 | 大型下载前必须通过 Network Gate；无法确认实际路由时不得开始安装 | Active |
+| D-015 | 2026-09-25 | 实机审计确认 Unity/Android 直连可用；为 `unity.com` / `unity3d.com` / `unitychina.cn` / `dl.google.com` 添加显式 DIRECT 规则后再放行 P0 下载 | Active |
+| D-016 | 2026-09-25 | Meta 开发域名允许继续走普通 `SDK DNS`；Webshare 固定住宅代理继续禁止开发下载 | Active |
 
 ---
 
