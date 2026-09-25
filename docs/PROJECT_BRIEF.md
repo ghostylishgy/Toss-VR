@@ -1,8 +1,10 @@
-# Toss · Meta VR Glasses 抛硬币应用 — 三方协作共享简报
+# Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.6 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.7 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.7 更新（2026-09-25 晚，合并“Toss 交互方案评审”）：① 正式加入核心交互状态机 `Spawn → Ready → Grabbed → Armed → Flight → Catch/Recovery → Reveal → Ready`；② 明确 Catch 是奖励而不是流程门槛，漏接必须 graceful recovery / auto-settle；③ 新增 Comfort Envelope，约束硬币高度、速度、角速度、生成/回收位置与舒适 FOV；④ 将状态机与舒适区作为后续 Gemini P2/P4 的工程约束。
 >
 > v0.6 更新（2026-09-25 晚，GPT 合并）：① 正式确立仓库单一规则写入治理：GPT 为 `PROJECT_BRIEF.md` 唯一写入者，Muse 只读并以文字 diff/核查意见反馈，Gemini 仅负责代码实现与代码推送；② 官方比赛截止与项目内部提交目标分离；③ Level A 改为“Confirmed-Capability Path”，避免把交互体验写成硬件保证；④ 明确 RNG 决定结果、Physics 负责呈现的确定性契约；⑤ 新增 Zero-UI ≠ Zero-Feedback；⑥ 新增 Decision Log。
 >
@@ -133,6 +135,85 @@ Pinch/Grab 拿起硬币
   - 若未来改为纯物理解算决定结果，必须作为正式 Decision 变更写入本文件。
 - 比赛版 KPI：**第一次 Toss 是否让人觉得“这东西就应该存在于眼镜上”**。功能数量不重要，核心 mechanic 完成度最重要。
 
+### 5.4 核心交互状态机（正式）
+
+> 状态机是 Toss 核心循环的唯一行为骨架。Gemini 后续 P2/P4 实现必须围绕这些状态与合法转移展开，不允许用零散布尔值拼出另一套隐式流程。
+
+```
+Spawn
+  → Ready
+  → Grabbed
+  → Armed
+  → Flight
+  → Catch / Recovery
+  → Reveal
+  → Ready
+```
+
+#### Spawn
+- 创建/回收一枚可交互硬币到用户舒适操作区。
+- 初始位置必须落在 Comfort Envelope 内，不贴脸、不贴视野边缘、不要求用户大幅低头或扭头寻找。
+- Spawn 完成后进入 Ready。
+
+#### Ready
+- 硬币可被看见、可被手势拿起。
+- Gaze 仅表示 attention，不触发抓取或状态改变。
+- 合法转移：用户完成有效 Pinch/Grab → Grabbed。
+
+#### Grabbed
+- 硬币跟随手部交互。
+- 系统持续观察手部运动，但尚未视为一次有效抛掷。
+- 若用户直接松手且未达到有效 Toss 条件，可安全回到 Ready/Recovery，不产生一次正式结果。
+- 当向上运动达到有效抛掷判定条件时 → Armed。
+
+#### Armed
+- 表示“这已经是一枚准备被真正抛出的硬币”。
+- 这是 RNG 结果生成前后的工程边界：**进入有效 Toss 后，每次循环只允许生成一个 Heads/Tails 结果。**
+- 用户 Release → Flight。
+- 阈值必须参数化，具体数值由 Simulator/真机调优，不在 SSOT 硬编码。
+
+#### Flight
+- 硬币按物理轨迹上升、旋转、下落。
+- 用户 gaze 可以自然追踪，但不得改变状态。
+- 飞行必须受 Comfort Envelope 约束，避免关键阶段飞出舒适 FOV。
+- 进入可接取阶段后 → Catch attempt；若无法可靠接取或即将离开安全区 → Recovery。
+
+#### Catch / Recovery
+- **Catch 是奖励，不是门槛。**
+- 成功 Catch：允许在手中完成 Reveal，获得更强“真实硬币”仪式感。
+- 漏接/没伸手/追踪失败：必须 graceful recovery / auto-settle，系统仍然完整结算该次 Toss。
+- 不允许因为没有接住而卡死、丢失结果、要求重来。
+- Recovery 可将硬币收束到安全可见位置，再进入 Reveal。
+
+#### Reveal
+- 展示已确定的 Heads / Tails。
+- 逻辑结果必须与最终视觉朝向一致（遵循 §5.3 RNG/Physics 契约）。
+- 反馈以硬币自身、空间音效和极短暂 HEADS/TAILS 为主。
+- Reveal 完成后，自动回到 Ready，允许用户自然开始下一次 Toss。
+
+### 5.5 Comfort Envelope（舒适交互包络）
+
+> 目标不是“物理上能飞多高”，而是“用户能否自然地用眼睛追、用手接，而不需要追着虚拟物体找”。
+
+Competition Build 必须建立一组**可调参数**，至少包括：
+
+- 硬币 Spawn 距离 / 高度范围。
+- 最大抛掷高度。
+- 最大水平偏移。
+- 最大线速度。
+- 最大角速度 / 旋转表现上限。
+- Flight 期间允许的舒适 FOV 区域。
+- Recovery 触发边界。
+- Reveal 安全位置。
+
+原则：
+
+1. **视觉连续性优先于纯物理自由度。** 必要时允许对轨迹、速度或旋转做温和约束。
+2. 硬币不得因为用户一次过猛手势就飞出可追踪区域。
+3. 接近 Comfort Envelope 边界时允许系统提前介入 Recovery。
+4. 所有阈值必须参数化，先在 Simulator 调整，未来 VR Glasses 真机再重新标定。
+5. Comfort Envelope 不得通过大面积 HUD 提醒用户；用户应通过硬币运动本身自然感知边界。
+
 ---
 
 ## 6. 功能规划
@@ -232,9 +313,9 @@ Pinch/Grab 拿起硬币
 
 - **P0 Environment**：Unity + Meta XR SDK + Interaction SDK + VR Glasses Profile + Simulator 跑通。
 - **P1 Coin**：真实比例硬币模型、Rigidbody、重力、旋转、空间位置。
-- **P2 Guaranteed Toss**：Pinch/Grab → upward movement → release → physics。
+- **P2 Guaranteed Toss**：按 §5.4 实现 `Ready → Grabbed → Armed → Flight`，并满足 §5.5 Comfort Envelope。
 - **P3 Result**：Heads/Tails RNG 契约 + 视觉/音效结果反馈。
-- **P4 Catch**：手掌/Pinch 接取逻辑；不稳定则按 §5.1 降级。
+- **P4 Catch**：按 §5.4 实现 `Catch / Recovery → Reveal → Ready`；Catch 不稳定时必须 graceful recovery / auto-settle，不得阻塞核心循环。
 - **P5 Signature Gesture**：实验 thumb flick；失败 fallback Level A，不影响比赛 Build。
 
 全程使用 Device Readiness Check 做兼容性验收。
@@ -306,6 +387,9 @@ Pinch/Grab 拿起硬币
 | D-005 | 2026-09-25 | 比赛版采用 **polished vertical slice**，优先一枚硬币，不扩张为平台 | Active |
 | D-006 | 2026-09-25 | `PROJECT_BRIEF.md` 的唯一规则写入者为 GPT；Muse 只读反馈，Gemini 只写工程代码，侃哥最终拍板 | Active |
 | D-007 | 2026-09-25 | 官方截止为 2026-11-19 04:00 GMT+8；内部提交目标定为 2026-11-18，预留缓冲 | Active |
+| D-008 | 2026-09-25 | **Catch 是奖励，不是完成一次 Toss 的门槛**；漏接必须 graceful recovery / auto-settle | Active |
+| D-009 | 2026-09-25 | 核心状态机固定为 `Spawn → Ready → Grabbed → Armed → Flight → Catch/Recovery → Reveal → Ready` | Active |
+| D-010 | 2026-09-25 | Toss 必须受参数化 **Comfort Envelope** 约束；视觉连续性与舒适 FOV 优先于无限制物理自由度 | Active |
 
 ---
 
