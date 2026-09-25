@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.8 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.9 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.9 更新（2026-09-25 晚，P0 Network Gate）：① 开发下载分流正式定案：Unity/Android/UPM 大文件一律 DIRECT；Meta 开发者站点/SDK/Simulator 如直连失败则走普通机场节点；Webshare 固定住宅 IP 禁止用于开发下载；② 在任何大型下载前必须先审计 Clash/TUN、系统代理、WinHTTP、代理环境变量和实际路由；③ 无法确认路由时不得开始安装。
 >
 > v0.8 更新（2026-09-25 晚，P0 官方文档复核）：① Unity 6000.0.66f2+ 安装必须包含 Android Build Support、Android SDK & NDK Tools、OpenJDK；② OpenXR Plugin 锁定 1.17.0+；③ Meta XR Simulator v207 改为 standalone Windows runtime，旧 Unity Simulator package 不得作为新项目安装路径；④ P0 明确要求切换 Meta VR Glasses profile 后退出并重新进入 Play mode；⑤ P0 只验证环境和 Look-and-Pinch，不引入业务代码。
 >
@@ -72,6 +74,24 @@
 - Simulator 切换到 **Meta VR Glasses** profile 后，必须退出并重新进入 Unity Play mode，使 OpenXR instance 重新绑定目标 profile；默认 profile 为 Quest 3，不能只看“Simulator 能启动”就视为 P0 通过。
 - 自检工具：Device Readiness Check（检查 controller 依赖、FOV、controller-only input 等问题，并输出 readiness report）。
 - 分发规则：对没有手柄的 VR Glasses 用户，hands-compatible content 会优先被展示；因此 Toss 比赛版坚持 hands-first / controller-free。
+
+### 3.1 P0 Network Gate（安装前强制检查）
+
+开发下载采用以下固定策略：
+
+- Unity Hub / Unity Editor / Android SDK / NDK / OpenJDK / Unity Package Manager：**DIRECT**。
+- Unity Asset Store / Meta XR SDK：优先 DIRECT；若实际不可达或明显异常，再切普通机场代理。
+- Meta Developer Center / Meta XR Simulator：允许在直连不可用时走**普通机场代理**。
+- **Webshare 固定住宅 IP 禁止用于开发下载、SDK 下载、Simulator 下载和 Unity 大文件。**
+
+在任何大型下载开始前，必须完成网络审计：
+
+1. 检查 Clash 当前模式、TUN 是否启用、规则模式是否生效。
+2. 检查 Windows 系统代理与 WinHTTP 代理。
+3. 检查 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 等环境变量。
+4. 验证 Unity / Google Android / Unity Package CDN 的实际路由为 DIRECT。
+5. 验证 Meta 相关域名若需代理，实际走普通机场节点而非固定住宅 IP。
+6. 无法确认实际路由时，**停止下载并返回审计结果，不得凭猜测继续。**
 
 ---
 
@@ -397,12 +417,16 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-010 | 2026-09-25 | Toss 必须受参数化 **Comfort Envelope** 约束；视觉连续性与舒适 FOV 优先于无限制物理自由度 | Active |
 | D-011 | 2026-09-25 | P0 使用 **standalone Meta XR Simulator v207**；不安装 deprecated 的旧 Unity Simulator package | Active |
 | D-012 | 2026-09-25 | P0 锁定 Unity 6000.0.66f2 + Android modules，并要求 OpenXR Plugin 1.17.0+ | Active |
+| D-013 | 2026-09-25 | P0 下载网络策略：Unity/Android/UPM 全部 DIRECT；Meta 必要时普通机场代理；Webshare 固定住宅 IP 禁止开发下载 | Active |
+| D-014 | 2026-09-25 | 大型下载前必须通过 Network Gate；无法确认实际路由时不得开始安装 | Active |
 
 ---
 
 ## 12. 当前下一步
 
 **当前阶段：P0 Environment。**
+
+在 P0 安装前，先完成 **P0 Network Gate**。Network Gate 未通过时，不得开始 Unity Editor、Android toolchain、Meta XR Simulator 等大型下载。
 
 下一份给 Gemini 的正式工程任务必须只覆盖：
 
