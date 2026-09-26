@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.10 ｜ 更新日期：2026-09-25 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.11 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.11 更新（2026-09-26，Unity CDN 例外策略拍板）：① 实机确认大陆 DIRECT 访问 `download.unity3d.com` 会被 302 到缺文件的 `download.unitychina.cn` 并 404；② 允许仅对 `download.unity3d.com` 添加更高优先级 `SDK DNS` 例外，绕过大陆镜像；③ 其他 Unity Package/Android 下载继续 DIRECT，Meta 继续 SDK DNS，Webshare 继续禁止开发下载；④ 本次 Unity Editor + Unity 自托管 Support 包的普通机场流量预算按约 10GB 可接受控制。
 >
 > v0.10 更新（2026-09-25 晚，Network Gate 实机审计）：① 当前 Clash Verge Rev 使用 Rule + TUN，所有未显式直连流量由 TUN 接管；② Unity 官方下载域名与 `dl.google.com` 当前误走 `SDK DNS` 普通机场，违反大文件 DIRECT 策略；③ 物理直连 TCP 已验证可用，问题仅在规则优先级；④ Webshare 固定住宅代理与开发域名完全隔离；⑤ P0 必须先加入 Unity / Android 下载显式 DIRECT 规则并复核，Network Gate PASS 后方可下载。
 >
@@ -104,7 +106,7 @@
 - Meta 开发者与 Oculus/CDN 当前走普通 `SDK DNS`，可接受；未命中 Webshare。
 - Webshare 固定住宅节点仅绑定 `AI-Fixed-IP` 特定规则，不存在 Unity / Meta 开发下载泄漏。
 
-Network Gate 修正规则（必须置于通用 Google / MATCH 规则之前）：
+Network Gate 基础修正规则（必须置于通用 Google / MATCH 规则之前）：
 
 ```yaml
 - DOMAIN-SUFFIX,unity.com,DIRECT
@@ -113,7 +115,17 @@ Network Gate 修正规则（必须置于通用 Google / MATCH 规则之前）：
 - DOMAIN,dl.google.com,DIRECT
 ```
 
-应用规则后必须重新验证实际命中与小请求出口；未验证通过不得启动 Unity / Android 大型下载。
+实机安装阶段进一步确认：大陆 DIRECT 访问 `download.unity3d.com` 会被 Unity CDN 302 到 `download.unitychina.cn`，而目标 Unity 6 文件在国内镜像缺失并返回 404。为此，允许新增一个**更高优先级的精确例外**：
+
+```yaml
+- DOMAIN,download.unity3d.com,SDK DNS
+```
+
+该例外必须排在 `DOMAIN-SUFFIX,unity3d.com,DIRECT` 之前。这样只让 Unity Editor / Unity 自托管 Support 包走普通机场；`packages.unity.com`、`download.packages.unity.com`、`cdn.packages.unity.com` 以及 `dl.google.com` 继续 DIRECT。
+
+本次普通机场流量预算：**约 10GB 可接受**。若实际明显超出预算，应暂停并复核连接去向。
+
+应用规则后必须重新验证实际命中与小请求出口；未验证通过不得继续大型下载。
 
 ---
 
@@ -443,6 +455,8 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-014 | 2026-09-25 | 大型下载前必须通过 Network Gate；无法确认实际路由时不得开始安装 | Active |
 | D-015 | 2026-09-25 | 实机审计确认 Unity/Android 直连可用；为 `unity.com` / `unity3d.com` / `unitychina.cn` / `dl.google.com` 添加显式 DIRECT 规则后再放行 P0 下载 | Active |
 | D-016 | 2026-09-25 | Meta 开发域名允许继续走普通 `SDK DNS`；Webshare 固定住宅代理继续禁止开发下载 | Active |
+| D-017 | 2026-09-26 | 因 Unity 中国镜像缺失目标文件，允许**仅 `download.unity3d.com`** 走 `SDK DNS`；其余 Unity/Android 下载继续 DIRECT | Active |
+| D-018 | 2026-09-26 | 本次 Unity Editor + Unity 自托管 Support 包普通机场流量预算约 10GB，可接受；明显超预算则暂停复核 | Active |
 
 ---
 
