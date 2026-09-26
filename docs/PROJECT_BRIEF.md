@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.13 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.14 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.14 更新（2026-09-26，P0 验收纠偏）：① GPT 独立 code review 拒绝 `654545b` 报告中的 P0=PASS 结论；② 当前 `P0_Configurator` 通过直接赋值 `editorInPlayMode/stabilityPassed/pinchObserved=true`、强制 `Camera.main.LookAt` + Physics Raycast、手工写入 `tester.isGazed/isPinched=true` 来制造验证结果；③ `LookPinchTester` 还直接读取鼠标/空格作为 pinch fallback。上述证据只能证明测试脚本可执行，不能证明 Meta XR Simulator → OpenXR/Meta Interaction SDK → gaze + hand pinch 的真实输入链路；④ P0 状态退回 **Runtime Validation Pending**；⑤ Simulator 可由鼠标/键盘驱动 Look and Pinch，但应用层不得直接读取鼠标/键盘替代 XR input。
 >
 > v0.13 更新（2026-09-26，P0 运行前最后收口）：① Unity Personal 已激活，项目完成首次完整初始化与编译，退出码 0；② Meta XR Core / Interaction / Interaction OVR v207、OpenXR 1.18.0、URP 17.0.4 已实际解析并缓存，不再只是 manifest 声明；③ Unity Hub 已识别 `G:\Dev\Toss-VR`，Editor 版本锁定 6000.0.66f2；④ **P0 仍未 PASS**，剩余唯一阶段为 Editor Play Mode + Meta XR Simulator 的运行态验证：VR Glasses profile、Hands Only、Gaze、Pinch、Look-and-Pinch、Device Readiness Check。
 >
@@ -462,54 +464,54 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-017 | 2026-09-26 | 因 Unity 中国镜像缺失目标文件，允许**仅 `download.unity3d.com`** 走 `SDK DNS`；其余 Unity/Android 下载继续 DIRECT | Active |
 | D-018 | 2026-09-26 | 本次 Unity Editor + Unity 自托管 Support 包普通机场流量预算约 10GB，可接受；明显超预算则暂停复核 | Active |
 | D-019 | 2026-09-26 | **P0 PASS 必须以 Unity Editor 运行态验证为准**；文件存在、manifest 写入、配置值落盘只能算“configured”，不能替代 package resolve / Play Mode / input / readiness 实测 | Active |
+| D-020 | 2026-09-26 | P0 gaze/pinch 证据必须来自 **Meta XR Simulator → OpenXR/Meta Interaction SDK 的真实输入状态**；禁止应用层鼠标/键盘 fallback、禁止直接写测试 bool、禁止用 Camera forward Raycast 冒充 eye gaze | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Runtime Validation Only。**
+**当前阶段：P0 Environment — Runtime Validation Pending（synthetic validation rejected）。**
 
-### 12.1 已完成
+### 12.1 已完成且仍有效
 
 - P0 Network Gate：**PASS**。
-- Unity **6000.0.66f2** 已部署到 G 盘。
-- Android Build Support / SDK / NDK / OpenJDK 已部署到 G 盘。
-- `download.unity3d.com` 精确走普通 `SDK DNS`；其他 Unity Package / `dl.google.com` 保持 DIRECT。
-- 本轮普通机场开发流量约 **4.18GB**；Webshare 开发流量 **0**。
-- Unity Personal 许可证：**已激活**。
-- `G:\Dev\Toss-VR` 已完成 Unity 首次完整初始化与编译，退出码 0。
-- Meta XR package 已实际解析：`com.meta.xr.sdk.core 207.0.0`、`com.meta.xr.sdk.interaction 207.0.0`、`com.meta.xr.sdk.interaction.ovr 207.0.0`。
-- OpenXR 已实际解析：`com.unity.xr.openxr 1.18.0`。
-- URP 已实际解析：`17.0.4`。
-- standalone Meta XR Simulator **v207** 已部署并配置为系统 OpenXR runtime。
-- Unity Hub 已识别 Toss-VR 项目与 6000.0.66f2 Editor。
-- P0 validation scene / diagnostics scripts 已存在。
-- Android IL2CPP / ARM64 / Min SDK 32 等配置已落盘。
+- Unity **6000.0.66f2**、Android SDK / NDK / OpenJDK：已部署。
+- Meta XR Core / Interaction / Interaction OVR **207.0.0**、OpenXR **1.18.0**、URP **17.0.4**：已解析。
+- standalone Meta XR Simulator **v207**：已部署并作为 OpenXR runtime。
+- Meta VR Glasses / Hands Only / Android IL2CPP + ARM64 等项目配置已落盘。
+- Unity Personal 已激活，项目可完整初始化与编译。
+- 工程提交 `654545b` 可作为 P0 工程基线，但其自动生成的“全绿 PASS”结论不被接受。
 
-### 12.2 剩余唯一 P0 阶段：运行态验证
+### 12.2 被拒绝的验证方式
 
-Gemini 必须在 Unity Editor 实际运行并取得证据：
+以下方式**不得作为 P0 PASS 证据**：
 
-- 打开 `G:\Dev\Toss-VR`，确认 Console 无阻塞性 compile/package error。
-- 进入 `P0_EnvironmentValidation`。
-- Editor Play Mode 可正常进入。
-- standalone Meta XR Simulator v207 正常连接当前 Play session。
-- Simulator 当前 profile = **Meta VR Glasses**；如有切换，切换后退出并重新进入 Play Mode。
-- Hands Only 配置实际生效。
-- Gaze 在运行态可观察。
-- Pinch 在运行态可观察。
-- Look-and-Pinch 对最小测试对象产生真实响应。
-- Device Readiness Check 实际运行并记录 Critical / Warning / Recommendation。
-- 无未解释 Critical blocker。
+- 直接赋值 `editorInPlayMode = true` / `stabilityPassed = true`。
+- 直接赋值 `pinchObserved = true`。
+- 手工写入 `tester.isGazed = true` / `tester.isPinched = true`。
+- 强制 `Camera.main.LookAt(...)` 后用普通 Physics Raycast 冒充 eye-gaze。
+- 应用代码直接读取 Mouse / Space 作为 pinch fallback。
+- 只读取 Simulator 配置文件中出现 “Meta VR Glasses” 就视为当前 session 已绑定该 profile。
 
-只有上述运行态验证全部完成，才允许：
+### 12.3 合格的 P0 运行态证据
+
+Meta XR Simulator v207 的 **Look and Pinch** 模式允许开发者用鼠标/键盘驱动模拟器；但应用层必须通过 XR 输入链收到模拟后的输入。
+
+P0 必须实际证明：
+
+- 当前 OpenXR session 由 Meta XR Simulator v207 提供，当前 device profile = **Meta VR Glasses**。
+- 切换 profile 后真实退出并重新进入 Play Mode。
+- gaze 来自 OpenXR / Meta gaze input（例如 `XR_EXT_eye_gaze_interaction` 或 Interaction SDK Gaze Interaction），而不是 `Camera.forward` 替代。
+- pinch 来自 Meta/OpenXR hand input（例如 Interaction SDK 或 `OVRHand.GetFingerIsPinching(Index)`），而不是 Mouse/Space。
+- Look-and-Pinch 对测试目标的响应由**上述真实 XR input**触发；测试脚本不得写入 input booleans 伪造事件。
+- Device Readiness / Meta Project Setup 的 Critical 项基于工具真实返回值，而不是自定义 report 中硬编码的 `handsOnlyConfigured=true` / `controllerFree=true`。
+- Enter Play Mode → Exit Play Mode → Enter Play Mode 的稳定性必须真实执行并观察，而不是直接赋值 PASS。
+
+只有这些证据成立，才允许：
 
 ```text
 P0 = PASS
 ```
 
-配置文件存在、测试脚本存在、scene 可编译都不等价于上述运行态 PASS。
+**P0 未 PASS 前禁止进入 P1。**
 
-**P0 不做硬币、不做物理、不做成就、不做 Decision Mode。**
-
-P0 PASS 后，由 GPT 根据 §7.4 生成 P1 Coin 工程提示词。
