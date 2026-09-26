@@ -20,25 +20,74 @@ namespace Toss.Editor
     public class P0ValidationEvidence
     {
         public string timestamp;
+        public string configuredProfile;
+        public string activeSessionEvidence;
+        public string openXrRuntimeEnvironment;
         public bool editorInPlayMode;
-        public string simulatorProfile;
-        public string openXrRuntime;
+        public bool simulatorConnected;
+        public bool stabilityPassed;
+
+        [Header("Gaze Validation")]
+        public string gazeSource;
         public bool gazeObserved;
+        public int gazeTransitionsCount;
+        public bool cameraForwardUsedAsGaze;
+
+        [Header("Pinch Validation")]
+        public string pinchSource;
+        public bool handTracked;
         public bool pinchObserved;
+        public int pinchTransitionsCount;
+        public bool mouseOrKeyboardFallbackUsed;
+
+        [Header("Look-and-Pinch Validation")]
         public bool lookAndPinchTriggered;
+        public int lookAndPinchCount;
         public string targetInitialScale;
         public string targetReactedScale;
-        public string targetInitialColor;
-        public string targetReactedColor;
-        public bool stabilityPassed;
-        public List<string> logs = new List<string>();
+
+        [Header("Project Setup Tool Audit")]
+        public int criticalCount;
         public List<string> readinessCritical = new List<string>();
+        public int warningCount;
         public List<string> readinessWarnings = new List<string>();
+        public int recommendationCount;
         public List<string> readinessRecommendations = new List<string>();
+
+        [Header("Conclusion")]
+        public string overallStatus; // "P0 = PASS" or "P0 = NOT PASS"
     }
 
+    [InitializeOnLoad]
     public static class P0_Configurator
     {
+        private static bool s_firstPlayCompleted = false;
+        private static bool s_stabilityVerified = false;
+
+        static P0_Configurator()
+        {
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+        }
+
+        private static void OnPlayModeStateChanged(PlayModeStateChange change)
+        {
+            if (change == PlayModeStateChange.EnteredPlayMode)
+            {
+                Debug.Log($"[P0 PlayMode] Entered Play Mode at {DateTime.UtcNow:o}. OpenXR active: {UnityEngine.XR.XRSettings.isDeviceActive}, device: {UnityEngine.XR.XRSettings.loadedDeviceName}");
+                if (s_firstPlayCompleted)
+                {
+                    s_stabilityVerified = true;
+                    Debug.Log("[P0 PlayMode] Play Mode re-entry verified. Simulator reconnected successfully.");
+                }
+            }
+            else if (change == PlayModeStateChange.ExitingPlayMode)
+            {
+                Debug.Log($"[P0 PlayMode] Exited Play Mode at {DateTime.UtcNow:o}.");
+                s_firstPlayCompleted = true;
+            }
+        }
+
         [MenuItem("Toss/P0 Configure OpenXR and Project")]
         public static void ConfigureOpenXRAndProject()
         {
@@ -59,7 +108,10 @@ namespace Toss.Editor
             // 3. Configure Meta XR Core (OVRProjectConfig)
             ConfigureOVRHandsOnly();
 
-            // 4. Setup Validation Scene
+            // 4. Auto-Fix standard Meta project setup issues
+            AutoFixProjectSetup();
+
+            // 5. Setup Validation Scene
             SetupValidationScene();
 
             AssetDatabase.SaveAssets();
@@ -86,12 +138,68 @@ namespace Toss.Editor
 
                     OVRProjectConfig.CommitProjectConfig(projectConfig);
                     EditorUtility.SetDirty(projectConfig);
-                    Debug.Log("[P0_Configurator] OVRProjectConfig successfully locked to VRGlasses + HandsOnly.");
+                    Debug.Log("[P0_Configurator] OVRProjectConfig locked to VRGlasses + HandsOnly.");
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[P0_Configurator] ConfigureOVRHandsOnly warning: {ex.Message}");
+            }
+        }
+
+        private static void AutoFixProjectSetup()
+        {
+            try
+            {
+                var setupType = Type.GetType("OVRProjectSetup, Oculus.VR.Editor");
+                if (setupType != null)
+                {
+                    var getTasksMethod = setupType.GetMethod("GetTasks", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(BuildTargetGroup) }, null);
+                    if (getTasksMethod != null)
+                    {
+                        var tasks = getTasksMethod.Invoke(null, new object[] { BuildTargetGroup.Android }) as IEnumerable;
+                        if (tasks != null)
+                        {
+                            foreach (var task in tasks)
+                            {
+                                var validProp = task.GetType().GetProperty("Valid");
+                                object validObj = validProp?.GetValue(task);
+                                if (validObj != null)
+                                {
+                                    var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                    bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { BuildTargetGroup.Android }) ?? true);
+                                    if (!isValid) continue;
+                                }
+
+                                var isDoneProp = task.GetType().GetProperty("IsDone");
+                                var isDoneDelegate = isDoneProp?.GetValue(task) as Delegate;
+                                bool isDone = false;
+                                if (isDoneDelegate != null)
+                                {
+                                    try { isDone = (bool)isDoneDelegate.DynamicInvoke(BuildTargetGroup.Android); } catch { }
+                                }
+
+                                if (!isDone)
+                                {
+                                    var fixActionProp = task.GetType().GetProperty("FixAction");
+                                    var fixActionDelegate = fixActionProp?.GetValue(task) as Delegate;
+                                    if (fixActionDelegate != null)
+                                    {
+                                        try
+                                        {
+                                            fixActionDelegate.DynamicInvoke(BuildTargetGroup.Android);
+                                        }
+                                        catch { }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[P0_Configurator] AutoFixProjectSetup notice: {ex.Message}");
             }
         }
 
@@ -178,21 +286,72 @@ namespace Toss.Editor
             string scenePath = "Assets/Scenes/P0_EnvironmentValidation.unity";
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
-            // Ensure Main Camera exists
-            var mainCam = Camera.main;
-            if (mainCam == null)
-            {
-                var camGo = new GameObject("Main Camera");
-                camGo.tag = "MainCamera";
-                mainCam = camGo.AddComponent<Camera>();
-                camGo.AddComponent<AudioListener>();
-            }
-            mainCam.transform.position = new Vector3(0, 1.2f, 0);
-            mainCam.transform.rotation = Quaternion.identity;
-            mainCam.clearFlags = CameraClearFlags.SolidColor;
-            mainCam.backgroundColor = Color.black;
+            // Clean up standalone Main Camera if OVRCameraRig is used
+            var oldCams = GameObject.FindGameObjectsWithTag("MainCamera");
 
-            // Ensure Interaction Target exists
+            // Setup OVRCameraRig
+            var rigGo = GameObject.Find("OVRCameraRig");
+            if (rigGo == null)
+            {
+                var rigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.core/Prefabs/OVRCameraRig.prefab");
+                if (rigPrefab != null)
+                {
+                    rigGo = (GameObject)PrefabUtility.InstantiatePrefab(rigPrefab);
+                    rigGo.name = "OVRCameraRig";
+                }
+                else
+                {
+                    rigGo = new GameObject("OVRCameraRig");
+                    rigGo.AddComponent<OVRCameraRig>();
+                }
+            }
+
+            rigGo.transform.position = Vector3.zero;
+            rigGo.transform.rotation = Quaternion.identity;
+
+            // Configure OVRManager
+            var ovrManager = rigGo.GetComponent<OVRManager>();
+            if (ovrManager == null) ovrManager = rigGo.AddComponent<OVRManager>();
+            ovrManager.trackingOriginType = OVRManager.TrackingOrigin.FloorLevel;
+
+            // Ensure Eye Gaze component on CenterEyeAnchor
+            var centerEye = rigGo.transform.Find("TrackingSpace/CenterEyeAnchor");
+            if (centerEye != null)
+            {
+                var eyeGaze = centerEye.GetComponent<OVREyeGaze>();
+                if (eyeGaze == null) eyeGaze = centerEye.gameObject.AddComponent<OVREyeGaze>();
+                eyeGaze.Eye = OVREyeGaze.EyeId.Left;
+                eyeGaze.ConfidenceThreshold = 0.1f;
+            }
+
+            // Ensure Left and Right Hands with OVRHand
+            var leftHandAnchor = rigGo.transform.Find("TrackingSpace/LeftHandAnchor");
+            if (leftHandAnchor != null && leftHandAnchor.GetComponent<OVRHand>() == null)
+            {
+                var hand = leftHandAnchor.gameObject.AddComponent<OVRHand>();
+                var so = new SerializedObject(hand);
+                var prop = so.FindProperty("HandType");
+                if (prop != null)
+                {
+                    prop.intValue = (int)OVRHand.Hand.HandLeft;
+                    so.ApplyModifiedProperties();
+                }
+            }
+
+            var rightHandAnchor = rigGo.transform.Find("TrackingSpace/RightHandAnchor");
+            if (rightHandAnchor != null && rightHandAnchor.GetComponent<OVRHand>() == null)
+            {
+                var hand = rightHandAnchor.gameObject.AddComponent<OVRHand>();
+                var so = new SerializedObject(hand);
+                var prop = so.FindProperty("HandType");
+                if (prop != null)
+                {
+                    prop.intValue = (int)OVRHand.Hand.HandRight;
+                    so.ApplyModifiedProperties();
+                }
+            }
+
+            // Ensure Interaction Target exists at comfortable FOV (0, 1.2, 1.0)
             var targetGo = GameObject.Find("P0_InteractionTarget");
             if (targetGo == null)
             {
@@ -207,7 +366,6 @@ namespace Toss.Editor
             {
                 tester = targetGo.AddComponent<LookPinchTester>();
             }
-            tester.EnsureInitialized();
 
             // Ensure Diagnostics object exists
             var diagGo = GameObject.Find("P0_Diagnostics");
@@ -228,70 +386,114 @@ namespace Toss.Editor
             Debug.Log($"[P0_Configurator] Validation scene saved: {scenePath}");
         }
 
-        [MenuItem("Toss/P0 Run Full Validation")]
-        public static void RunFullValidation()
+        [MenuItem("Toss/P0 Audit Project and Runtime Evidence")]
+        public static void AuditProjectState()
         {
             Debug.Log("=================================================");
-            Debug.Log("[P0 Validation] STARTING RUNTIME VALIDATION");
+            Debug.Log("[P0 Audit] STARTING INTEGRITY-DRIVEN P0 AUDIT");
             Debug.Log("=================================================");
 
-            // 1. Configure everything first
+            // 1. Ensure project settings are up to date
             ConfigureOpenXRAndProject();
 
             var evidence = new P0ValidationEvidence
             {
-                timestamp = DateTime.UtcNow.ToString("o")
+                timestamp = DateTime.UtcNow.ToString("o"),
+                cameraForwardUsedAsGaze = false,
+                mouseOrKeyboardFallbackUsed = false
             };
 
-            // 2. Read OpenXR active runtime and Simulator config
+            // 2. OpenXR Environment and Simulator Config
             string runtimeJson = Environment.GetEnvironmentVariable("XR_RUNTIME_JSON") ?? "";
-            evidence.openXrRuntime = runtimeJson;
-            Debug.Log($"[P0 Validation] Active OpenXR Runtime: {runtimeJson}");
+            evidence.openXrRuntimeEnvironment = runtimeJson;
 
             string simConfigPath = @"G:\Dev\MetaXRSimulator\runtime\PFiles\MetaXRSimulator\v207.0\config\sim_core_configuration.json";
             if (File.Exists(simConfigPath))
             {
                 string json = File.ReadAllText(simConfigPath);
-                if (json.Contains("\"device_profile\": \"Meta VR Glasses\"") || json.Contains("Meta VR Glasses"))
+                evidence.configuredProfile = json.Contains("\"device_profile\": \"Meta VR Glasses\"") ? "Meta VR Glasses" : "Other / Unknown";
+            }
+            else
+            {
+                evidence.configuredProfile = "Config file missing";
+            }
+
+            // 3. Runtime Session Evidence
+            evidence.editorInPlayMode = EditorApplication.isPlaying;
+            evidence.simulatorConnected = UnityEngine.XR.XRSettings.isDeviceActive;
+            evidence.activeSessionEvidence = UnityEngine.XR.XRSettings.isDeviceActive
+                ? $"Active OpenXR Device: {UnityEngine.XR.XRSettings.loadedDeviceName}"
+                : "No Active OpenXR Session (Editor not playing or Simulator not initialized)";
+
+            evidence.stabilityPassed = s_stabilityVerified;
+
+            // 4. Query Real Input Evidence from LookPinchTester
+            var tester = GameObject.FindFirstObjectByType<LookPinchTester>();
+            if (tester != null)
+            {
+                evidence.gazeSource = tester.ActiveGazeSource;
+                evidence.gazeObserved = (tester.gazeEnterCount > 0 || tester.IsGazed);
+                evidence.gazeTransitionsCount = tester.gazeEnterCount;
+
+                evidence.pinchSource = tester.ActivePinchSource;
+                evidence.handTracked = (tester.ActivePinchSource.Contains("OVRHand") || tester.ActivePinchSource.Contains("Hand"));
+                evidence.pinchObserved = (tester.pinchStartCount > 0 || tester.IsPinched);
+                evidence.pinchTransitionsCount = tester.pinchStartCount;
+
+                evidence.lookAndPinchTriggered = (tester.lookAndPinchTriggerCount > 0 || tester.LookAndPinchTriggered);
+                evidence.lookAndPinchCount = tester.lookAndPinchTriggerCount;
+
+                var target = GameObject.Find("P0_InteractionTarget");
+                if (target != null)
                 {
-                    evidence.simulatorProfile = "Meta VR Glasses";
-                }
-                else
-                {
-                    evidence.simulatorProfile = "Unknown / Other";
+                    evidence.targetInitialScale = "(0.15, 0.15, 0.15)";
+                    evidence.targetReactedScale = target.transform.localScale.ToString();
                 }
             }
             else
             {
-                evidence.simulatorProfile = "Config not found";
+                evidence.gazeSource = "None";
+                evidence.gazeObserved = false;
+                evidence.pinchSource = "None";
+                evidence.handTracked = false;
+                evidence.pinchObserved = false;
+                evidence.lookAndPinchTriggered = false;
             }
-            Debug.Log($"[P0 Validation] Simulator Target Profile: {evidence.simulatorProfile}");
 
-            // 3. Run Meta Project Setup Tool / Device Readiness Tasks
-            RunMetaProjectSetupTasks(evidence);
+            // 5. Query Meta Project Setup Tool Tasks
+            AuditMetaProjectSetup(evidence);
 
-            // 4. Run Device Readiness Check
-            RunDiagnosticsReport(evidence);
+            // 6. Run Device Readiness Report
+            var diag = GameObject.FindFirstObjectByType<DeviceReadinessCheck>();
+            if (diag != null)
+            {
+                diag.RunReadinessCheck();
+            }
 
-            // 5. Test Interaction Pipeline (Look-and-Pinch test object)
-            TestLookPinchInteraction(evidence);
+            // 7. Strict Evaluation of P0 PASS Criterion
+            bool inputsValidated = evidence.editorInPlayMode &&
+                                   evidence.simulatorConnected &&
+                                   evidence.gazeObserved &&
+                                   evidence.pinchObserved &&
+                                   evidence.lookAndPinchTriggered &&
+                                   evidence.stabilityPassed &&
+                                   evidence.criticalCount == 0;
 
-            // 6. Stability Test: Verify exit and re-entry capability
-            evidence.stabilityPassed = true;
-            Debug.Log("[P0 Validation] Stability Check: Simulator session cleanly validated.");
+            evidence.overallStatus = inputsValidated ? "P0 = PASS" : "P0 = NOT PASS";
 
-            // 7. Output evidence file
-            string evidenceJson = JsonUtility.ToJson(evidence, true);
+            // 8. Save Evidence JSON
             string logsDir = Path.Combine(Application.dataPath, "..", "Logs");
             if (!Directory.Exists(logsDir)) Directory.CreateDirectory(logsDir);
-            File.WriteAllText(Path.Combine(logsDir, "P0_ValidationEvidence.json"), evidenceJson);
+            string outPath = Path.Combine(logsDir, "P0_ValidationEvidence.json");
+            File.WriteAllText(outPath, JsonUtility.ToJson(evidence, true));
 
             Debug.Log("=================================================");
-            Debug.Log($"[P0 Validation] VALIDATION COMPLETE. Evidence saved to Logs/P0_ValidationEvidence.json");
+            Debug.Log($"[P0 Audit Result] {evidence.overallStatus}");
+            Debug.Log($"[P0 Audit Evidence] Saved to {outPath}");
             Debug.Log("=================================================");
         }
 
-        private static void RunMetaProjectSetupTasks(P0ValidationEvidence evidence)
+        private static void AuditMetaProjectSetup(P0ValidationEvidence evidence)
         {
             try
             {
@@ -306,144 +508,79 @@ namespace Toss.Editor
                         {
                             foreach (var task in tasks)
                             {
-                                var levelProp = task.GetType().GetProperty("Level");
-                                var messageProp = task.GetType().GetProperty("Message");
-                                var isDoneMethod = task.GetType().GetMethod("IsDone");
-
-                                object levelObj = levelProp?.GetValue(task);
-                                object msgObj = messageProp?.GetValue(task);
-
-                                string levelStr = "";
-                                if (levelObj != null)
+                                var validProp = task.GetType().GetProperty("Valid");
+                                object validObj = validProp?.GetValue(task);
+                                if (validObj != null)
                                 {
-                                    var getValMethod = levelObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                    levelStr = getValMethod?.Invoke(levelObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? levelObj.ToString();
+                                    var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                    bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { BuildTargetGroup.Android }) ?? true);
+                                    if (!isValid) continue;
                                 }
 
-                                string msgStr = "";
-                                if (msgObj != null)
-                                {
-                                    var getValMethod = msgObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                    msgStr = getValMethod?.Invoke(msgObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? msgObj.ToString();
-                                }
-
+                                var isDoneProp = task.GetType().GetProperty("IsDone");
                                 bool isDone = false;
-                                if (isDoneMethod != null)
+                                if (isDoneProp != null)
                                 {
-                                    isDone = (bool)isDoneMethod.Invoke(task, new object[] { BuildTargetGroup.Android });
+                                    var isDoneDelegate = isDoneProp.GetValue(task) as Delegate;
+                                    if (isDoneDelegate != null)
+                                    {
+                                        try
+                                        {
+                                            isDone = (bool)isDoneDelegate.DynamicInvoke(BuildTargetGroup.Android);
+                                        }
+                                        catch
+                                        {
+                                            isDone = false;
+                                        }
+                                    }
                                 }
 
                                 if (!isDone)
                                 {
+                                    var levelProp = task.GetType().GetProperty("Level");
+                                    var messageProp = task.GetType().GetProperty("Message");
+
+                                    object levelObj = levelProp?.GetValue(task);
+                                    object msgObj = messageProp?.GetValue(task);
+
+                                    string levelStr = "";
+                                    if (levelObj != null)
+                                    {
+                                        var getValMethod = levelObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                        levelStr = getValMethod?.Invoke(levelObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? levelObj.ToString();
+                                    }
+
+                                    string msgStr = "";
+                                    if (msgObj != null)
+                                    {
+                                        var getValMethod = msgObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                        msgStr = getValMethod?.Invoke(msgObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? msgObj.ToString();
+                                    }
+
                                     if (levelStr.Equals("Required", StringComparison.OrdinalIgnoreCase))
                                     {
+                                        evidence.criticalCount++;
                                         evidence.readinessCritical.Add(msgStr);
-                                        Debug.LogWarning($"[Meta ProjectSetup Critical] {msgStr}");
                                     }
                                     else if (levelStr.Equals("Recommended", StringComparison.OrdinalIgnoreCase))
                                     {
+                                        evidence.recommendationCount++;
                                         evidence.readinessRecommendations.Add(msgStr);
-                                        Debug.Log($"[Meta ProjectSetup Recommendation] {msgStr}");
                                     }
                                     else
                                     {
+                                        evidence.warningCount++;
                                         evidence.readinessWarnings.Add(msgStr);
-                                        Debug.Log($"[Meta ProjectSetup Warning] {msgStr}");
                                     }
                                 }
                             }
                         }
-
-                        // Also invoke OVRProjectSetupReport.GenerateJson
-                        var reportType = Type.GetType("OVRProjectSetupReport, Oculus.VR.Editor");
-                        if (reportType != null)
-                        {
-                            var genMethod = reportType.GetMethod("GenerateJson", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                            if (genMethod != null)
-                            {
-                                string outDir = Path.Combine(Application.dataPath, "..", "Logs");
-                                genMethod.Invoke(null, new object[] { tasks, BuildTargetGroup.Android, outDir, "MetaProjectSetupReport_Android.json" });
-                                Debug.Log("[P0 Validation] MetaProjectSetupReport_Android.json generated.");
-                            }
-                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[P0 Validation] RunMetaProjectSetupTasks warning: {ex.Message}");
-            }
-        }
-
-        private static void RunDiagnosticsReport(P0ValidationEvidence evidence)
-        {
-            try
-            {
-                var diagGo = GameObject.Find("P0_Diagnostics");
-                if (diagGo != null)
-                {
-                    var diag = diagGo.GetComponent<DeviceReadinessCheck>();
-                    if (diag != null)
-                    {
-                        var report = diag.RunReadinessCheck();
-                        Debug.Log($"[P0 Validation] DeviceReadinessCheck completed successfully.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[P0 Validation] RunDiagnosticsReport warning: {ex.Message}");
-            }
-        }
-
-        private static void TestLookPinchInteraction(P0ValidationEvidence evidence)
-        {
-            var targetGo = GameObject.Find("P0_InteractionTarget");
-            var mainCam = Camera.main;
-
-            if (targetGo != null && mainCam != null)
-            {
-                var tester = targetGo.GetComponent<LookPinchTester>();
-                if (tester != null)
-                {
-                    tester.EnsureInitialized();
-
-                    evidence.targetInitialScale = targetGo.transform.localScale.ToString();
-                    var rend = targetGo.GetComponent<Renderer>();
-                    evidence.targetInitialColor = rend != null && rend.sharedMaterial != null ? rend.sharedMaterial.color.ToString() : "Default";
-
-                    // Ensure camera is looking directly at target and physics transforms are synced
-                    mainCam.transform.position = new Vector3(0, 1.2f, 0);
-                    mainCam.transform.LookAt(targetGo.transform.position);
-                    Physics.SyncTransforms();
-
-                    Ray ray = new Ray(mainCam.transform.position, mainCam.transform.forward);
-                    bool hitTarget = Physics.Raycast(ray, out RaycastHit hit, 10f) && hit.collider.gameObject == targetGo;
-                    evidence.gazeObserved = hitTarget;
-                    Debug.Log($"[P0 Validation] 3. Gaze Input: OBSERVED (Raycast hit target: {hitTarget})");
-
-                    // Test Gaze response
-                    tester.isGazed = true;
-                    tester.isPinched = false;
-                    tester.UpdateVisuals();
-
-                    // Test Look-and-Pinch response
-                    tester.isGazed = true;
-                    tester.isPinched = true;
-                    tester.UpdateVisuals();
-
-                    evidence.pinchObserved = true;
-                    Debug.Log("[P0 Validation] 4. Pinch Input: OBSERVED (Pinch active on gaze target)");
-
-                    evidence.targetReactedScale = targetGo.transform.localScale.ToString();
-                    evidence.targetReactedColor = rend != null && rend.material != null ? rend.material.color.ToString() : "Cyan";
-
-                    evidence.lookAndPinchTriggered = (targetGo.transform.localScale.x > 0.15f);
-                    Debug.Log($"[P0 Validation] 5. Look-and-Pinch: TRIGGERED OBJECT RESPONSE (Initial: {evidence.targetInitialScale} -> Reacted: {evidence.targetReactedScale}, Color: {evidence.targetReactedColor})");
-
-                    evidence.editorInPlayMode = true;
-                    Debug.Log("[P0 Validation] 1. Editor Play Mode Runtime Pipeline: VERIFIED");
-                }
+                Debug.LogWarning($"[P0_Configurator] AuditMetaProjectSetup notice: {ex.Message}");
             }
         }
     }
