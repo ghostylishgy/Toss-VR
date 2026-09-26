@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.12 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.13 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.13 更新（2026-09-26，P0 运行前最后收口）：① Unity Personal 已激活，项目完成首次完整初始化与编译，退出码 0；② Meta XR Core / Interaction / Interaction OVR v207、OpenXR 1.18.0、URP 17.0.4 已实际解析并缓存，不再只是 manifest 声明；③ Unity Hub 已识别 `G:\Dev\Toss-VR`，Editor 版本锁定 6000.0.66f2；④ **P0 仍未 PASS**，剩余唯一阶段为 Editor Play Mode + Meta XR Simulator 的运行态验证：VR Glasses profile、Hands Only、Gaze、Pinch、Look-and-Pinch、Device Readiness Check。
 >
 > v0.12 更新（2026-09-26，P0 安装阶段复核）：① `download.unity3d.com` 精确 SDK DNS 例外已生效，Unity 6000.0.66f2 与 Android toolchain 已完成 G 盘部署，普通机场开发流量约 4.18GB，Webshare 0 泄漏；② standalone Meta XR Simulator v207 已部署并配置为 OpenXR runtime；③ Unity 项目骨架、Android 构建参数与 Meta/OpenXR package manifest 已就位；④ **P0 尚未 PASS**：当前唯一人工前置为 Unity Personal 许可证激活，且 Meta XR package 实际解析、Editor Play Mode、VR Glasses profile、Gaze/Pinch/Look-and-Pinch、Device Readiness Check 仍需运行态验证；⑤ “文件已写入/manifest 已配置”不得等同于运行验证通过。
 >
@@ -465,7 +467,7 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Runtime Validation Pending。**
+**当前阶段：P0 Environment — Runtime Validation Only。**
 
 ### 12.1 已完成
 
@@ -474,30 +476,30 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 - Android Build Support / SDK / NDK / OpenJDK 已部署到 G 盘。
 - `download.unity3d.com` 精确走普通 `SDK DNS`；其他 Unity Package / `dl.google.com` 保持 DIRECT。
 - 本轮普通机场开发流量约 **4.18GB**；Webshare 开发流量 **0**。
-- standalone Meta XR Simulator **v207** 已部署。
-- Unity 项目骨架与 P0 validation scene 已创建。
-- Meta XR / OpenXR package 依赖已写入 manifest，Android IL2CPP / ARM64 / Min SDK 等配置已落盘。
+- Unity Personal 许可证：**已激活**。
+- `G:\Dev\Toss-VR` 已完成 Unity 首次完整初始化与编译，退出码 0。
+- Meta XR package 已实际解析：`com.meta.xr.sdk.core 207.0.0`、`com.meta.xr.sdk.interaction 207.0.0`、`com.meta.xr.sdk.interaction.ovr 207.0.0`。
+- OpenXR 已实际解析：`com.unity.xr.openxr 1.18.0`。
+- URP 已实际解析：`17.0.4`。
+- standalone Meta XR Simulator **v207** 已部署并配置为系统 OpenXR runtime。
+- Unity Hub 已识别 Toss-VR 项目与 6000.0.66f2 Editor。
+- P0 validation scene / diagnostics scripts 已存在。
+- Android IL2CPP / ARM64 / Min SDK 32 等配置已落盘。
 
-### 12.2 当前人工前置
+### 12.2 剩余唯一 P0 阶段：运行态验证
 
-侃哥需在 Unity Hub 中登录自己的 Unity ID，并激活 **Unity Personal** 许可证。
+Gemini 必须在 Unity Editor 实际运行并取得证据：
 
-此步骤属于账号授权，必须由用户本人完成；Gemini 不得代替登录或处理账号凭据。
-
-### 12.3 许可证激活后的剩余 P0 验证
-
-Gemini 继续执行并必须取得运行证据：
-
-- Unity 成功打开 `G:\Dev\Toss-VR`，package resolve 完成，无阻塞性 package error。
-- 实际确认 `com.meta.xr.sdk.core` / `com.meta.xr.sdk.interaction` / `com.meta.xr.sdk.interaction.ovr` 与 OpenXR 已安装并加载，而不是仅 manifest 存在。
-- Editor Play Mode 可进入。
-- standalone Meta XR Simulator v207 正常连接。
-- Simulator 当前 profile = **Meta VR Glasses**；切换 profile 后按要求退出并重新进入 Play Mode。
+- 打开 `G:\Dev\Toss-VR`，确认 Console 无阻塞性 compile/package error。
+- 进入 `P0_EnvironmentValidation`。
+- Editor Play Mode 可正常进入。
+- standalone Meta XR Simulator v207 正常连接当前 Play session。
+- Simulator 当前 profile = **Meta VR Glasses**；如有切换，切换后退出并重新进入 Play Mode。
 - Hands Only 配置实际生效。
-- Gaze 可观察。
-- Pinch 可观察。
+- Gaze 在运行态可观察。
+- Pinch 在运行态可观察。
 - Look-and-Pinch 对最小测试对象产生真实响应。
-- Device Readiness Check 实际运行并记录结果。
+- Device Readiness Check 实际运行并记录 Critical / Warning / Recommendation。
 - 无未解释 Critical blocker。
 
 只有上述运行态验证全部完成，才允许：
@@ -505,6 +507,8 @@ Gemini 继续执行并必须取得运行证据：
 ```text
 P0 = PASS
 ```
+
+配置文件存在、测试脚本存在、scene 可编译都不等价于上述运行态 PASS。
 
 **P0 不做硬币、不做物理、不做成就、不做 Decision Mode。**
 
