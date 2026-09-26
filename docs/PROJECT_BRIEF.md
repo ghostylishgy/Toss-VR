@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.11 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.12 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.12 更新（2026-09-26，P0 安装阶段复核）：① `download.unity3d.com` 精确 SDK DNS 例外已生效，Unity 6000.0.66f2 与 Android toolchain 已完成 G 盘部署，普通机场开发流量约 4.18GB，Webshare 0 泄漏；② standalone Meta XR Simulator v207 已部署并配置为 OpenXR runtime；③ Unity 项目骨架、Android 构建参数与 Meta/OpenXR package manifest 已就位；④ **P0 尚未 PASS**：当前唯一人工前置为 Unity Personal 许可证激活，且 Meta XR package 实际解析、Editor Play Mode、VR Glasses profile、Gaze/Pinch/Look-and-Pinch、Device Readiness Check 仍需运行态验证；⑤ “文件已写入/manifest 已配置”不得等同于运行验证通过。
 >
 > v0.11 更新（2026-09-26，Unity CDN 例外策略拍板）：① 实机确认大陆 DIRECT 访问 `download.unity3d.com` 会被 302 到缺文件的 `download.unitychina.cn` 并 404；② 允许仅对 `download.unity3d.com` 添加更高优先级 `SDK DNS` 例外，绕过大陆镜像；③ 其他 Unity Package/Android 下载继续 DIRECT，Meta 继续 SDK DNS，Webshare 继续禁止开发下载；④ 本次 Unity Editor + Unity 自托管 Support 包的普通机场流量预算按约 10GB 可接受控制。
 >
@@ -457,26 +459,53 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-016 | 2026-09-25 | Meta 开发域名允许继续走普通 `SDK DNS`；Webshare 固定住宅代理继续禁止开发下载 | Active |
 | D-017 | 2026-09-26 | 因 Unity 中国镜像缺失目标文件，允许**仅 `download.unity3d.com`** 走 `SDK DNS`；其余 Unity/Android 下载继续 DIRECT | Active |
 | D-018 | 2026-09-26 | 本次 Unity Editor + Unity 自托管 Support 包普通机场流量预算约 10GB，可接受；明显超预算则暂停复核 | Active |
+| D-019 | 2026-09-26 | **P0 PASS 必须以 Unity Editor 运行态验证为准**；文件存在、manifest 写入、配置值落盘只能算“configured”，不能替代 package resolve / Play Mode / input / readiness 实测 | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment。**
+**当前阶段：P0 Environment — Runtime Validation Pending。**
 
-在 P0 安装前，先完成 **P0 Network Gate**。Network Gate 未通过时，不得开始 Unity Editor、Android toolchain、Meta XR Simulator 等大型下载。
+### 12.1 已完成
 
-下一份给 Gemini 的正式工程任务必须只覆盖：
+- P0 Network Gate：**PASS**。
+- Unity **6000.0.66f2** 已部署到 G 盘。
+- Android Build Support / SDK / NDK / OpenJDK 已部署到 G 盘。
+- `download.unity3d.com` 精确走普通 `SDK DNS`；其他 Unity Package / `dl.google.com` 保持 DIRECT。
+- 本轮普通机场开发流量约 **4.18GB**；Webshare 开发流量 **0**。
+- standalone Meta XR Simulator **v207** 已部署。
+- Unity 项目骨架与 P0 validation scene 已创建。
+- Meta XR / OpenXR package 依赖已写入 manifest，Android IL2CPP / ARM64 / Min SDK 等配置已落盘。
 
-- Unity **6000.0.66f2**，并确认 Android Build Support / Android SDK & NDK Tools / OpenJDK 已安装
-- Meta XR SDK v207 / Interaction SDK 三个指定 package 安装并确认版本
-- OpenXR Plugin **1.17.0+**
-- standalone Meta XR Simulator **v207** 安装并可作为 OpenXR runtime 激活
-- Simulator 中选择 **Meta VR Glasses** Device Profile，并在切换后重启 Play mode
-- Hands Only / Look-and-Pinch 基础输入可观察（至少 gaze + pinch）
-- Device Readiness Check 可运行并记录结果
-- 最小测试场景能在 Editor Play mode + VR Glasses profile 下运行
+### 12.2 当前人工前置
+
+侃哥需在 Unity Hub 中登录自己的 Unity ID，并激活 **Unity Personal** 许可证。
+
+此步骤属于账号授权，必须由用户本人完成；Gemini 不得代替登录或处理账号凭据。
+
+### 12.3 许可证激活后的剩余 P0 验证
+
+Gemini 继续执行并必须取得运行证据：
+
+- Unity 成功打开 `G:\Dev\Toss-VR`，package resolve 完成，无阻塞性 package error。
+- 实际确认 `com.meta.xr.sdk.core` / `com.meta.xr.sdk.interaction` / `com.meta.xr.sdk.interaction.ovr` 与 OpenXR 已安装并加载，而不是仅 manifest 存在。
+- Editor Play Mode 可进入。
+- standalone Meta XR Simulator v207 正常连接。
+- Simulator 当前 profile = **Meta VR Glasses**；切换 profile 后按要求退出并重新进入 Play Mode。
+- Hands Only 配置实际生效。
+- Gaze 可观察。
+- Pinch 可观察。
+- Look-and-Pinch 对最小测试对象产生真实响应。
+- Device Readiness Check 实际运行并记录结果。
+- 无未解释 Critical blocker。
+
+只有上述运行态验证全部完成，才允许：
+
+```text
+P0 = PASS
+```
 
 **P0 不做硬币、不做物理、不做成就、不做 Decision Mode。**
 
-P0 验收完成后，由 GPT 根据 §7.4 生成 P1 Coin 工程提示词。
+P0 PASS 后，由 GPT 根据 §7.4 生成 P1 Coin 工程提示词。
