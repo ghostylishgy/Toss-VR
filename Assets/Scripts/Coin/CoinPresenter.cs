@@ -71,34 +71,42 @@ namespace Toss.Coin
 
         private void Update()
         {
-            HandleKeyboardInput();
+            if (Application.isPlaying)
+            {
+                HandleKeyboardInput();
+            }
             UpdateInspectionRotation();
         }
 
         private void HandleKeyboardInput()
         {
-            // Inspection hotkeys during Play mode or in Editor
-            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
+            if (!Application.isPlaying) return;
+
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard == null) return;
+
+            // Inspection hotkeys during Play mode
+            if (keyboard.digit1Key.wasPressedThisFrame || keyboard.numpad1Key.wasPressedThisFrame)
             {
                 SetPreset(PresetAngle.FrontHeads0);
             }
-            else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
+            else if (keyboard.digit2Key.wasPressedThisFrame || keyboard.numpad2Key.wasPressedThisFrame)
             {
                 SetPreset(PresetAngle.Angle45);
             }
-            else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
+            else if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame)
             {
                 SetPreset(PresetAngle.EdgeSide90);
             }
-            else if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
+            else if (keyboard.digit4Key.wasPressedThisFrame || keyboard.numpad4Key.wasPressedThisFrame)
             {
                 SetPreset(PresetAngle.Angle135);
             }
-            else if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
+            else if (keyboard.digit5Key.wasPressedThisFrame || keyboard.numpad5Key.wasPressedThisFrame)
             {
                 SetPreset(PresetAngle.BackTails180);
             }
-            else if (Input.GetKeyDown(KeyCode.Space))
+            else if (keyboard.spaceKey.wasPressedThisFrame)
             {
                 if (inspectionMode == CoinInspectionMode.StaticPreset)
                 {
@@ -110,21 +118,21 @@ namespace Toss.Coin
                     isPaused = !isPaused;
                 }
             }
-            else if (Input.GetKeyDown(KeyCode.M))
+            else if (keyboard.mKey.wasPressedThisFrame)
             {
                 int next = ((int)inspectionMode + 1) % 4;
                 inspectionMode = (CoinInspectionMode)next;
                 Debug.Log($"[CoinPresenter] Switched Inspection Mode to: {inspectionMode}");
             }
-            else if (Input.GetKeyDown(KeyCode.B))
+            else if (keyboard.bKey.wasPressedThisFrame)
             {
                 ToggleBackdrop();
             }
-            else if (Input.GetKeyDown(KeyCode.LeftBracket))
+            else if (keyboard.leftBracketKey.wasPressedThisFrame)
             {
                 config.turntableRotationSpeed = Mathf.Max(5f, config.turntableRotationSpeed - 10f);
             }
-            else if (Input.GetKeyDown(KeyCode.RightBracket))
+            else if (keyboard.rightBracketKey.wasPressedThisFrame)
             {
                 config.turntableRotationSpeed = Mathf.Min(180f, config.turntableRotationSpeed + 10f);
             }
