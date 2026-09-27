@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.22 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.23 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.23 更新（2026-09-27，P1 产品哲学冻结）：① P1 从“做一枚硬币资产”升级为 **Coin Presence / Coin Play**：设计目标是一件住在眼镜里的数字随身小物，而不只是 Coin Flip 工具；② 当前核心产品假设为 **Fidget-first**：把玩可能是留存引擎，Decision Utility 是自然分支，但该假设需由原型验证，不视为已证明事实；③ 冻结六条 P1 原则：quarter-inspired 熟悉锚点、双态性格、Invisible Generosity、Low-attention Play、Occlusion as Magic、Physical enough to believe / Designed enough to enjoy；④ 重量感不得依赖硬币 squash/stretch 或篡改用户真实手视觉，而应来自硬币自身的惯性/时序/遮挡/声音/settle；⑤ P1 设计需同时考虑视觉、材质、声音、运动、节奏、环境适应与长期关系感（patina）；⑥ P1 首轮只验证 Finger Play、Perceived Weight、Invisible Generosity 三类核心体验，Euler Disk/真实桌面交互列为后续 capability-dependent extension；⑦ P1 不进入正式 Toss 状态机、RNG、Catch/Recovery 或结果结算。
 >
 > v0.22 更新（2026-09-27，P0 正式通过）：① clean-session 首轮与 Stop→Play 重入均完成；② Meta XR Simulator v207 / Meta VR Glasses / Look and Pinch 下，真实 `GAZE_ENTER`、`PINCH_START`、`LOOK_AND_PINCH_TRIGGERED`、`PINCH_END`、`GAZE_EXIT` 均可重复触发；③ Console 红色 Error=0，Microsoft hand interaction `XR_ERROR_HANDLE_INVALID`、NullReferenceException、MissingReferenceException 均未复现；④ P0 target 的 Gold / Cyan 反馈稳定可重复；⑤ Windows Smart App Control 保持开启，卸载 KB5124010 并重启后此前 Code Integrity 阻止未复现，仅作为本机 A/B 相关性记录；⑥ **P0 = PASS**，允许进入 P1 Coin。
 >
@@ -295,6 +297,83 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 4. 所有阈值必须参数化，先在 Simulator 调整，未来 VR Glasses 真机再重新标定。
 5. Comfort Envelope 不得通过大面积 HUD 提醒用户；用户应通过硬币运动本身自然感知边界。
 
+
+### 5.6 P1 Coin Presence / Coin Play（正式设计原则）
+
+> P1 不再把目标定义为“做一枚真实硬币模型”，而是：**设计一件用户在现实空间里会愿意反复把玩的数字随身小物。**
+
+#### 产品假设
+
+- **Fidget-first**：把玩本身可能是高频留存来源；Heads/Tails 决策是这件随身小物自然具备的 Utility 分支。
+- 该判断当前是**产品假设**，必须通过原型验证，不作为已证实用户事实。
+- Toss 不做传统游戏化留存：不依赖积分、连击、签到、等级、皮肤解锁等系统。
+
+#### P1 核心原则
+
+1. **Quarter-inspired, not quarter-replica**
+   - quarter 只承担美国用户第一眼“coin / flip a coin”的熟悉感锚点。
+   - 不 1:1 复刻真实法币，不复制真实人物头像，不放真实货币文字。
+   - 视觉优先级：**可读性 ≥ 亲和感 > 写实度**。
+
+2. **Dual-state Character，不做显式 Mode**
+   - 低能量把玩时：轻松、顽皮、安静、随手。
+   - 真正 Toss 时：动作和声音自然收敛，短暂获得更稳重的仪式感。
+   - 用户不应看到“Fidget Mode / Decision Mode”切换；性格变化通过运动、节奏和声音连续发生。
+
+3. **Invisible Generosity**
+   - 系统应持续帮助用户得到更顺手、更成功的体验，但辅助必须不可见。
+   - 允许温和修正轨迹、交互窗口、settle 与后续 catch/recovery，但禁止让用户看见“自动瞄准/磁吸拐弯”。
+   - 目标是让用户觉得“我今天手感很好”，而不是“系统替我完成了”。
+
+4. **Low-attention Play**
+   - Fidget loop 应尽量允许用户把注意力留给现实环境，而不是要求持续盯住硬币。
+   - “完全 eyes-free”属于实验目标，不是当前硬性能力承诺。
+   - 召唤/把玩/收起均应优先考虑单手、低幅度、公共场景可接受。
+
+5. **Occlusion as Magic**
+   - 手掌、指缝、身体遮挡等不可见瞬间，可作为姿态修正、重新绑定、recover、切换 attachment 的自然窗口。
+   - 原则：**Never waste an occlusion.**
+   - 重新出现时必须保持视觉连续，不能暴露系统作弊。
+
+6. **Physical enough to believe. Designed enough to enjoy.**
+   - 重力、抛物线、角动量观感等核心物理直觉应可信。
+   - timing、轨迹约束、settle、声音、高光、辅助量允许经过导演。
+   - 金属硬币本体保持刚性：**禁止通过 squash/stretch 伪造重量。**
+   - 不通过篡改用户真实手/绘制冲突虚拟手的方式制造“手被砸沉”的重量错觉。
+
+#### Coin Presence 设计维度
+
+P1 必须同时考虑以下元素，而不只看静态模型：
+
+- **形**：quarter-inspired、略放大/加厚、粗齿边、强剪影、Heads/Tails 大形区分。
+- **材质**：银色、缎面/拉丝、中等 roughness；不镜面、不主动发光。
+- **运动人格**：按“运动中的硬币”设计，尤其关注 edge → face → edge 的翻转周期、边缘高光和 settle。
+- **声音人格**：温润、近距离、低打扰；声音既提供材质感，也参与伪触觉和节奏。
+- **Tempo**：重复把玩必须能形成稳定节拍；目标不是“音效丰富”，而是“能不能被用户玩成自己的节奏”。
+- **环境适应**：亮暗/色温/背景可读性需要验证；实时环境光采样、桌面/Scene/Depth 等能力不得在未验证前写成依赖。
+- **关系感**：允许探索无 UI 的轻微 patina / 使用痕迹，让硬币“跟用户一起变老”，但不做进度条或成长系统。
+
+#### P1 首轮三个核心实验
+
+1. **Finger Play**
+   - 验证拇指拨、翻、捻、掌心把玩等低能量循环是否本身就足够 satisfying。
+   - 重点观察：节奏、惯性、edge highlight、声音同步、可重复性。
+
+2. **Perceived Weight**
+   - 对比 rigid 跟随、spring-damper、不同 angular inertia、settle、有声/无声等方案。
+   - 问题不是“哪个最真实”，而是：**哪个最像手里真的有个东西**。
+   - 所有 lag / damping 数值均为待实验参数，不冻结具体毫秒数。
+
+3. **Invisible Generosity**
+   - 对比纯物理、微辅助、明显辅助，寻找“系统已经帮了很多，但用户没有察觉”的边界。
+   - 正式 Toss/Catch 逻辑仍属于后续 P2/P4；P1 只做原理验证，不扩张状态机。
+
+#### Capability-dependent Extension
+
+- **Euler Disk / 真桌面旋转 + 死亡摇摆**被保留为高潜力 Signature Extension。
+- Scene/Depth/Spatial Mesh/桌面碰撞的实际稳定性必须先验证，不能成为 Competition Build 核心依赖。
+- 环境光估计、真实桌面锚定、长期 Spatial Anchor 等能力在确认前均保持可选实验，不得提前写死到主流程。
+
 ---
 
 ## 6. 功能规划
@@ -393,7 +472,7 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 只有前一级达到验收条件才进入下一级：
 
 - **P0 Environment**：Unity 6000.0.66f2（含 Android Build Support / SDK&NDK / OpenJDK）+ Meta XR SDK v207 + Interaction SDK + OpenXR 1.17.0+ + standalone Meta XR Simulator v207 + VR Glasses Profile + Look-and-Pinch 跑通。
-- **P1 Coin**：真实比例硬币模型、Rigidbody、重力、旋转、空间位置。
+- **P1 Coin Presence / Coin Play**：按 §5.6 建立 quarter-inspired Toss Coin 的视觉/材质/声音/运动人格，并完成 Finger Play、Perceived Weight、Invisible Generosity 三类最小体验实验；P1 不进入正式 Toss 状态机、RNG、Catch/Recovery 或结果逻辑。
 - **P2 Guaranteed Toss**：按 §5.4 实现 `Ready → Grabbed → Armed → Flight`，并满足 §5.5 Comfort Envelope。
 - **P3 Result**：Heads/Tails RNG 契约 + 视觉/音效结果反馈。
 - **P4 Catch**：按 §5.4 实现 `Catch / Recovery → Reveal → Ready`；Catch 不稳定时必须 graceful recovery / auto-settle，不得阻塞核心循环。
@@ -494,6 +573,10 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-031 | 2026-09-27 | `7c86e6d` 接受为 P0 OpenXR mutation 最小修复：未知/无关 feature 保持原状态，仅 exact block/required feature 可被修改 | Active |
 | D-032 | 2026-09-27 | clean-session 首轮已通过：真实 Gaze/Pinch/Look-and-Pinch 事件、0 红色错误、Microsoft hand profile 错误消失；仅剩 Stop→Play 重入稳定性复测 | Superseded by D-033 |
 | D-033 | 2026-09-27 | P0 Environment 正式 PASS：clean-session + Stop→Play 重入均通过，真实 Gaze/Pinch/Look-and-Pinch 事件可重复，Console 0 红色 Error | Active |
+| D-034 | 2026-09-27 | P1 从单纯 Coin Asset 升级为 **Coin Presence / Coin Play**；Fidget-first 作为待验证产品假设，Decision Utility 作为自然分支 | Active |
+| D-035 | 2026-09-27 | 冻结 P1 交互哲学：**Invisible Generosity / Low-attention Play / Occlusion as Magic / Physical enough to believe, Designed enough to enjoy** | Active |
+| D-036 | 2026-09-27 | P1 重量感不得依赖硬币 squash/stretch 或篡改用户真实手视觉；优先通过硬币自身惯性、timing、遮挡、声音与 settle 建立 pseudo-haptics | Active |
+| D-037 | 2026-09-27 | P1 首轮只验证 Finger Play、Perceived Weight、Invisible Generosity 三类最小实验；Euler Disk/真实桌面交互为 capability-dependent extension | Active |
 
 ---
 
@@ -529,29 +612,40 @@ Windows 主机注记：
 - 卸载 KB5124010 并重启后，之前对 `MetaXRSimulator.exe` / `ISDKEngineTelemetry.dll` 的 Code Integrity 阻止未复现。
 - 该现象只记录为本机 A/B 相关性，不视为微软官方确认的 KB 因果问题。
 
-### 12.2 P1 Coin 允许开始
+### 12.2 P1 Coin Presence / Coin Play 允许开始
 
-P1 目标保持 §7.4 定义：
+P1 的目标不再只是“把硬币放进场景”，而是按 §5.6 验证：
 
-- 真实比例硬币模型。
-- Rigidbody。
-- 重力。
-- 旋转。
-- 舒适空间位置。
+- 这枚硬币是否一眼像 coin，但明显属于 Toss 自己。
+- 它在静止、翻转、边缘朝向、低能量把玩时是否始终有存在感。
+- 没有真实触觉时，惯性、声音、时序、遮挡与 settle 能否制造“手里有个东西”的感觉。
+- 用户是否愿意无目标地重复玩它，而不只是为了得到 Heads/Tails。
+- 系统辅助能否做到慷慨但隐形。
 
-P1 暂不进入：
+P1 首轮实现 / 原型范围：
 
-- Toss 状态机。
+1. Coin Presence：形、材质、比例、边缘、Heads/Tails 大剪影、基础空间位置。
+2. Motion Readability：静态 + 360° flip/roll/rotation 观察。
+3. Finger Play 最小原型。
+4. Perceived Weight A/B 原型。
+5. Invisible Generosity 原理实验（不进入完整 Toss/Catch 状态机）。
+6. 声音与 tempo 可作为上述实验的一部分，但不建设完整音频系统。
+
+P1 仍明确不进入：
+
+- 正式 Toss 状态机。
 - RNG。
-- Heads/Tails 结算。
-- Catch。
-- Recovery。
-- Signature Gesture。
+- Heads/Tails 结果结算。
+- 完整 Catch / Recovery。
+- Decision Mode。
+- 游戏化进度系统。
+- 依赖未验证 Scene/Depth/Spatial Mesh 的主流程。
 
-P1 仍必须遵守：
+P1 必须继续保持：
 
+- P0 XR 输入基线冻结，不破坏已通过链路。
 - hands-first / controller-free。
 - Zero-UI。
 - Comfort Envelope。
-- 不破坏已经冻结通过的 P0 XR 输入基线。
+- 所有体验关键参数可调，不把未经实验的毫秒、角度、半径等数字写成硬规则。
 
