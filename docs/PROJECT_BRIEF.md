@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.20 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.21 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.21 更新（2026-09-27，clean-session 首轮通过）：① 卸载 Windows 预览更新 KB5124010 并重启后，Smart App Control 保持开启，Meta XR Simulator 与 Unity/Meta SDK 不再触发此前的 Code Integrity 阻止；该 A/B 结果强烈提示 KB5124010 与阻止行为相关，但不作为微软已确认因果结论；② 全新会话中 Console 红色 Error=0；③ 真实记录到 `GAZE_ENTER`、`PINCH_START`、`LOOK_AND_PINCH_TRIGGERED`、`PINCH_END`、`GAZE_EXIT`，且目标球视觉反馈正常；④ Microsoft hand interaction `XR_ERROR_HANDLE_INVALID` 已消失；⑤ 当前仅剩一次 Stop→Play 重入复测，成功后即可正式判定 **P0 = PASS**。
 >
 > v0.20 更新（2026-09-27，OpenXR mutation 收窄完成）：① 提交 `7c86e6d` 仅修改 `Assets/Scripts/Editor/P0_Configurator.cs`；② `MicrosoftHandInteraction` 现在仅通过 exact type match 禁用；③ required P0 feature 仅通过 exact allowlist 启用；④ 所有其他 OpenXR feature 保持当前 enabled state，不再自动 enable/disable；⑤ `Contains("Microsoft")` / `Contains("Hand")` / `Contains("Eye")` / `Contains("Aim")` 等模糊 mutation 已移除；⑥ Interaction Rig、validation scene、LookPinchTester、OpenXR Package Settings、ProjectSettings、Packages 均未修改；⑦ 下一步仅剩 clean-session GUI 最终复测。
 >
@@ -488,68 +490,56 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-029 | 2026-09-27 | `272928e` 的 Microsoft profile 资产清理被接受，但其 Configurator 不得把“未列入 allowlist”解释为“必须禁用”；未知/无关 feature 默认保持现状，不主动改写 | Active |
 | D-030 | 2026-09-27 | OpenXR feature mutation 只允许 exact type / exact featureId；禁止 `Contains("Microsoft")` 等模糊 block/allow 规则 | Active |
 | D-031 | 2026-09-27 | `7c86e6d` 接受为 P0 OpenXR mutation 最小修复：未知/无关 feature 保持原状态，仅 exact block/required feature 可被修改 | Active |
+| D-032 | 2026-09-27 | clean-session 首轮已通过：真实 Gaze/Pinch/Look-and-Pinch 事件、0 红色错误、Microsoft hand profile 错误消失；仅剩 Stop→Play 重入稳定性复测 | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Final Clean-session GUI Gate。**
+**当前阶段：P0 Environment — Final Re-entry Check。**
 
-### 12.1 工程状态
+### 12.1 Clean-session 首轮结果
 
-提交 `7c86e6d` 已完成 OpenXR mutation 最小收尾：
+已真实通过：
 
-- 仅修改 `Assets/Scripts/Editor/P0_Configurator.cs`。
-- `MicrosoftHandInteraction`：exact match → disable。
-- P0 required features：exact allowlist → enable。
-- 其他 feature：保持当前 enabled state，不修改。
-- 无 fuzzy Contains/StartsWith mutation。
-- Interaction Rig / scene / LookPinchTester / OpenXR settings asset 均未改。
+- Windows 重启后的全新 Unity + Meta XR Simulator 会话。
+- Smart App Control 保持开启。
+- Console 红色 Error = 0。
+- 不再出现 `/interaction_profiles/microsoft/hand_interaction` / `XR_ERROR_HANDLE_INVALID`。
+- 不再出现 NullReferenceException / MissingReferenceException。
+- `GAZE_ENTER` 可触发。
+- `PINCH_START` / `PINCH_END` 可触发。
+- `LOOK_AND_PINCH_TRIGGERED` 可触发。
+- `GAZE_EXIT` 可触发。
+- P0 target 的 Gold / Cyan 视觉反馈正常。
 
-因此配置代码已满足最小变更原则。
+Windows 环境注记：卸载 KB5124010 并重启后，之前的 Smart App Control / Code Integrity 阻止未复现；此结果只记录为本机 A/B 相关性证据，不扩展为微软官方已确认问题。
 
-### 12.2 最终 GUI Gate
+### 12.2 最后一项验收
 
-现在不再修改代码。侃哥执行一次全新会话：
+只做一次：
 
-1. 完全关闭 Unity Editor。
-2. 完全关闭 Meta XR Simulator。
-3. 重新启动 Meta XR Simulator v207。
-4. Synthetic Environment 保持 OFF。
-5. Runtime Enabled；Device = Meta VR Glasses；Left/Right = Look and Pinch。
-6. 从 Unity Hub 打开 `G:\Dev\Toss-VR`。
-7. 打开 `P0_EnvironmentValidation`。
-8. Clear Console。
-9. Play。
-10. 确认不再出现：
-   - `/interaction_profiles/microsoft/hand_interaction`
-   - 对应 `XR_ERROR_HANDLE_INVALID`
-   - NullReferenceException
-   - MissingReferenceException
-11. gaze target → Gold。
-12. pinch target → Cyan。
-13. Stop。
-14. 再次 Play。
-15. 再次 gaze → Gold / pinch → Cyan。
+1. 当前 Play → Stop。
+2. 再次 Play。
+3. gaze target → Gold。
+4. pinch → Cyan。
+5. Console 仍为 0 红色 Error，且再次出现真实 `GAZE_ENTER` + `LOOK_AND_PINCH_TRIGGERED`。
 
-### 12.3 P0 PASS Gate
-
-若上述 clean session 满足：
-
-- Microsoft profile error = 0。
-- Null/Missing reference error = 0。
-- Gaze hover 真实可重复。
-- Pinch select 真实可重复。
-- Stop → Play 后仍可重复。
-- Windows 1158 USER handle error 在 fresh session 未快速复现。
-
-则正式更新：
+若通过，则正式更新：
 
 ```text
 P0 = PASS
 ```
 
-若只有 Windows 1158 在长时间会话后偶发、fresh session 不复现，则记录为 host/editor transient issue，不阻断 XR core P0。
+然后允许进入：
 
-**完成最终 Gate 前仍保持 P0 = NOT PASS；P0 PASS 前禁止进入 P1。**
+```text
+P1 Coin
+```
+
+在该重入检查完成前，状态仍保持：
+
+```text
+P0 = NOT PASS
+```
 
