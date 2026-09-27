@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.17 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.18 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.18 更新（2026-09-27，真实 Look-and-Pinch 首次成功）：① 在 Meta XR Simulator v207 / Meta VR Glasses / Look and Pinch 下，`P0_InteractionTarget` 已真实出现 gaze hover 黄色反馈，并在 index pinch 时变为青色，证明 Simulator → OpenXR → Interaction SDK → target 的核心输入链首次真实贯通；② 当前仍暂不宣布 P0 PASS，因为 clean restart 后 Console 仍有两个红错：Windows/Unity `ERROR_NO_MORE_USER_HANDLES (1158)` 弹窗句柄耗尽，以及 OVRPlugin 对 `/interaction_profiles/microsoft/hand_interaction` 调用 `xrSuggestInteractionProfileBindings` 返回 `XR_ERROR_HANDLE_INVALID`；③ Meta v207 官方 Look-and-Pinch 使用 `/interaction_profiles/ext/hand_interaction_ext`（`XR_EXT_hand_interaction`），因此 Microsoft hand profile 不属于本阶段所需输入路径；④ `P0_Configurator.ConfigureBuildTargetXR()` 当前按名称 Contains("Hand"/"Eye"/"Aim") 批量启用 OpenXR feature 的策略被判定为过宽，必须改为显式 allowlist 后再做最终 clean-session 复测。
 >
 > v0.17 更新（2026-09-27，P0 Rig 根因修复候选）：① 真实 NullReference 根因已定位为 `OVRComprehensiveInteractionRig` 的 `OVRCameraRigRef._ovrCameraRig/_leftHand/_rightHand` 等序列化引用缺失，导致 `TrackingToWorldTransformerOVR.get_Transform()` 在 hand interaction 预处理时解引用 null；② 提交 `17b20a1` 补齐 CameraRig/Hand/Gaze/Tracking 引用，并移除 P0 无关 TouchHandGrab/Grab/Poke/Locomotion/Controller 交互器；③ 静态/批处理审计为 0 compile / 0 NullReference / 0 MissingReference；④ 该实现虽然对齐官方 prefab/sample，但仍包含 `PrefabUtility + SerializedObject` 手工 wiring，因此不等同于“纯 Quick Action、零手工装配”；⑤ 当前状态仍为 **P0 = NOT PASS**，等待 Unity Editor + Meta XR Simulator 的真实 GUI Look-and-Pinch 复测。
 >
@@ -476,70 +478,101 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-023 | 2026-09-26 | P0 输入验证不要求 Synthetic Environment；在本机 `synth_env_server` 异常占用约 17GB RAM 时保持其关闭，仅在后续确需 passthrough/Scene/Anchors/Depth 联调时再启用 | Active |
 | D-024 | 2026-09-27 | `17b20a1` 被接受为 P0 Rig 修复候选：根因是 `OVRCameraRigRef`/tracking 引用缺失；修复后静态审计清零，但仍需真实 GUI 输入复测后才能判 PASS | Active |
 | D-025 | 2026-09-27 | 项目不得把“使用官方 prefab/sample + 手工 SerializedObject wiring”描述为“纯官方 Quick Action / 无手工装配”；文档与报告必须区分二者 | Active |
+| D-026 | 2026-09-27 | 真实 GUI 已证明 Gaze Hover + Pinch Select 核心链可用；后续 P0 blocker 从“输入链未通”收敛为 OpenXR profile 清理与 clean-session stability | Active |
+| D-027 | 2026-09-27 | Meta VR Glasses Look-and-Pinch 必须使用 `XR_EXT_hand_interaction` / `/interaction_profiles/ext/hand_interaction_ext`；不得启用或依赖 Microsoft Hand Interaction Profile | Active |
+| D-028 | 2026-09-27 | 禁止通过 feature 名称模糊匹配批量启用 OpenXR feature；P0 以后只允许显式 allowlist/featureId 配置 | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — GUI Re-test After Rig Reference Repair。**
+**当前阶段：P0 Environment — OpenXR Profile Cleanup + Clean-session Retest。**
 
-### 12.1 当前已确认修复
+### 12.1 已真实通过
 
-提交 `17b20a1` 已完成以下修复候选：
+在修复候选 `17b20a1` 上，用户已经在真实 GUI 中观察到：
 
-- `OVRCameraRigRef._ovrCameraRig` → 场景 `OVRCameraRig`。
-- `OVRCameraRigRef._leftHand/_rightHand` → 对应 OVR hand data source。
-- `TrackingToWorldTransformerOVR._cameraRigRef` → 有效 CameraRigRef。
-- Interaction SDK EyeGaze / GazeConecaster / HandGazeInteractor / IndexPinchSelector 的关键 serialized reference 已断言 non-null。
-- P0 无关的 TouchHandGrab / HandGrab / Poke / Locomotion / Controller interactors 已禁用或从 InteractorGroup 移除。
-- 单一 XR camera / 单一 AudioListener。
-- batchmode/static audit：0 compile errors、0 NullReferenceException、0 MissingReferenceException。
+- Meta XR Simulator v207 已连接。
+- Device = Meta VR Glasses。
+- Left / Right input = Look and Pinch。
+- gaze 指向 `P0_InteractionTarget` 时，目标变为黄色并轻微放大。
+- index pinch 时，目标变为青色并出现 pinch 姿态。
 
-### 12.2 实现边界
-
-该提交使用 Meta 官方 prefab / sample 作为结构依据，但仍通过 `PrefabUtility` 与 `SerializedObject` 对若干官方组件进行手工 wiring。
-
-因此当前实现应描述为：
+因此以下链路已被真实证明：
 
 ```text
-official-prefab/sample-aligned + explicit audited wiring
+Meta XR Simulator
+→ OpenXR
+→ Interaction SDK Gaze/Hand Select
+→ P0_InteractionTarget
 ```
 
-不得描述为：
+核心输入链不再是 blocker。
+
+### 12.2 当前两个剩余红错
+
+#### A. Windows/Unity USER handle exhaustion
+
+Console 出现：
 
 ```text
-pure official Quick Action / no manual assembly
+Error displaying dialog:
+The current process has used all of its system allowance of handles for Window Manager objects.
 ```
 
-### 12.3 当前状态
+对应 Windows `ERROR_NO_MORE_USER_HANDLES (1158)`。这是 Editor/Windows GUI 资源问题，不是 Toss XR interaction event 本身。先通过完全退出 Unity Editor 后重开释放资源；若 clean launch 很快复现，再单独调查 Unity 进程 USER/GDI handles。
+
+#### B. 错误的 Microsoft hand interaction profile binding
+
+Console 出现：
 
 ```text
-P0 = NOT PASS
+Failed to suggest bindings for interaction profile
+/interaction_profiles/microsoft/hand_interaction
+XR_ERROR_HANDLE_INVALID
 ```
 
-理由：尚未在修复后的 `17b20a1` 上完成真实 GUI input 验证。
+Meta v207 Look-and-Pinch 的官方 profile 是：
 
-### 12.4 下一步 GUI 复测
+```text
+XR_EXT_hand_interaction
+/interaction_profiles/ext/hand_interaction_ext
+```
 
-侃哥只执行：
+因此 Microsoft Hand Interaction Profile 不属于 Toss 的 Meta VR Glasses P0 路线，应移除/禁用。
 
-1. 打开 `P0_EnvironmentValidation`。
-2. 启动 Meta XR Simulator v207，保持 Synthetic Environment OFF。
-3. Runtime Enabled；Device = Meta VR Glasses。
-4. Unity Play。
-5. 先看 Console：必须没有新的 NullReference / MissingReference / Interaction SDK initialization exception。
-6. Left/Right input = Look and Pinch。
-7. 鼠标 gaze 指向 `P0_InteractionTarget`：
-   - 预期：Gaze hover 反馈。
-8. 左键 pinch：
-   - 预期：Interaction SDK Select / Look-and-Pinch 反馈。
-9. Stop → Play 再测试一次。
+### 12.3 工程根因方向
 
-若第 5 步仍有异常，立即停止输入测试并保存完整 stack trace。
+当前 `P0_Configurator.ConfigureBuildTargetXR()` 存在按 feature name 模糊匹配：
 
-若第 5 步无异常但第 7/8 步仍无响应，则说明 Rig reference blocker 已解决，但 Gaze/Hand select 链仍有独立问题，继续保持 P0 NOT PASS 并重新定位。
+```text
+Contains("Hand")
+Contains("Eye")
+Contains("Aim")
+```
 
-只有真实 gaze + pinch 都触发且重入稳定，才允许：
+后自动启用 feature 的策略。
+
+该策略过宽，可能把与 Meta VR Glasses 无关的 Microsoft Hand Interaction 等 profile 一并打开。
+
+必须改为显式 allowlist：只启用 P0 已确认需要的 Meta XR / Eye Gaze / EXT Hand Interaction 等 feature；实际 feature type / featureId 以安装的 OpenXR 1.18 package 为准，不猜名称。
+
+### 12.4 最终 clean-session gate
+
+修复 profile 后：
+
+1. 完全退出 Unity Editor。
+2. 重新打开项目。
+3. 启动 Simulator，Synthetic Environment OFF。
+4. Device = Meta VR Glasses。
+5. Unity Play。
+6. Console 不得再出现 Microsoft hand interaction `XR_ERROR_HANDLE_INVALID`。
+7. gaze → 黄色。
+8. pinch → 青色。
+9. Stop → Play 再重复一次。
+10. 若 Windows USER-handle error 只存在于旧长会话、clean launch 不复现，则作为 host/editor transient issue 记录，不阻断 XR core P0；若 clean launch 快速复现，则继续调查，不宣布最终环境稳定。
+
+完成上述 gate 后才更新：
 
 ```text
 P0 = PASS
