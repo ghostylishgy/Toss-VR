@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.21 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.22 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.22 更新（2026-09-27，P0 正式通过）：① clean-session 首轮与 Stop→Play 重入均完成；② Meta XR Simulator v207 / Meta VR Glasses / Look and Pinch 下，真实 `GAZE_ENTER`、`PINCH_START`、`LOOK_AND_PINCH_TRIGGERED`、`PINCH_END`、`GAZE_EXIT` 均可重复触发；③ Console 红色 Error=0，Microsoft hand interaction `XR_ERROR_HANDLE_INVALID`、NullReferenceException、MissingReferenceException 均未复现；④ P0 target 的 Gold / Cyan 反馈稳定可重复；⑤ Windows Smart App Control 保持开启，卸载 KB5124010 并重启后此前 Code Integrity 阻止未复现，仅作为本机 A/B 相关性记录；⑥ **P0 = PASS**，允许进入 P1 Coin。
 >
 > v0.21 更新（2026-09-27，clean-session 首轮通过）：① 卸载 Windows 预览更新 KB5124010 并重启后，Smart App Control 保持开启，Meta XR Simulator 与 Unity/Meta SDK 不再触发此前的 Code Integrity 阻止；该 A/B 结果强烈提示 KB5124010 与阻止行为相关，但不作为微软已确认因果结论；② 全新会话中 Console 红色 Error=0；③ 真实记录到 `GAZE_ENTER`、`PINCH_START`、`LOOK_AND_PINCH_TRIGGERED`、`PINCH_END`、`GAZE_EXIT`，且目标球视觉反馈正常；④ Microsoft hand interaction `XR_ERROR_HANDLE_INVALID` 已消失；⑤ 当前仅剩一次 Stop→Play 重入复测，成功后即可正式判定 **P0 = PASS**。
 >
@@ -490,56 +492,66 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-029 | 2026-09-27 | `272928e` 的 Microsoft profile 资产清理被接受，但其 Configurator 不得把“未列入 allowlist”解释为“必须禁用”；未知/无关 feature 默认保持现状，不主动改写 | Active |
 | D-030 | 2026-09-27 | OpenXR feature mutation 只允许 exact type / exact featureId；禁止 `Contains("Microsoft")` 等模糊 block/allow 规则 | Active |
 | D-031 | 2026-09-27 | `7c86e6d` 接受为 P0 OpenXR mutation 最小修复：未知/无关 feature 保持原状态，仅 exact block/required feature 可被修改 | Active |
-| D-032 | 2026-09-27 | clean-session 首轮已通过：真实 Gaze/Pinch/Look-and-Pinch 事件、0 红色错误、Microsoft hand profile 错误消失；仅剩 Stop→Play 重入稳定性复测 | Active |
+| D-032 | 2026-09-27 | clean-session 首轮已通过：真实 Gaze/Pinch/Look-and-Pinch 事件、0 红色错误、Microsoft hand profile 错误消失；仅剩 Stop→Play 重入稳定性复测 | Superseded by D-033 |
+| D-033 | 2026-09-27 | P0 Environment 正式 PASS：clean-session + Stop→Play 重入均通过，真实 Gaze/Pinch/Look-and-Pinch 事件可重复，Console 0 红色 Error | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Final Re-entry Check。**
+**当前阶段：P1 Coin。**
 
-### 12.1 Clean-session 首轮结果
-
-已真实通过：
-
-- Windows 重启后的全新 Unity + Meta XR Simulator 会话。
-- Smart App Control 保持开启。
-- Console 红色 Error = 0。
-- 不再出现 `/interaction_profiles/microsoft/hand_interaction` / `XR_ERROR_HANDLE_INVALID`。
-- 不再出现 NullReferenceException / MissingReferenceException。
-- `GAZE_ENTER` 可触发。
-- `PINCH_START` / `PINCH_END` 可触发。
-- `LOOK_AND_PINCH_TRIGGERED` 可触发。
-- `GAZE_EXIT` 可触发。
-- P0 target 的 Gold / Cyan 视觉反馈正常。
-
-Windows 环境注记：卸载 KB5124010 并重启后，之前的 Smart App Control / Code Integrity 阻止未复现；此结果只记录为本机 A/B 相关性证据，不扩展为微软官方已确认问题。
-
-### 12.2 最后一项验收
-
-只做一次：
-
-1. 当前 Play → Stop。
-2. 再次 Play。
-3. gaze target → Gold。
-4. pinch → Cyan。
-5. Console 仍为 0 红色 Error，且再次出现真实 `GAZE_ENTER` + `LOOK_AND_PINCH_TRIGGERED`。
-
-若通过，则正式更新：
+### 12.1 P0 最终结论
 
 ```text
 P0 = PASS
 ```
 
-然后允许进入：
+验收证据：
 
-```text
-P1 Coin
-```
+- Meta XR Simulator v207 正常运行。
+- Device = Meta VR Glasses。
+- Left / Right = Look and Pinch。
+- Synthetic Environment OFF 仍可完成 P0。
+- clean-session 首轮通过。
+- Stop → Play 重入通过。
+- Console 红色 Error = 0。
+- `GAZE_ENTER` / `GAZE_EXIT` 可重复。
+- `PINCH_START` / `PINCH_END` 可重复。
+- `LOOK_AND_PINCH_TRIGGERED` 可重复。
+- Target Gold / Cyan 反馈稳定。
+- 不再出现 Microsoft hand profile `XR_ERROR_HANDLE_INVALID`。
+- 不再出现 NullReferenceException / MissingReferenceException。
 
-在该重入检查完成前，状态仍保持：
+Windows 主机注记：
 
-```text
-P0 = NOT PASS
-```
+- Smart App Control 保持开启。
+- 卸载 KB5124010 并重启后，之前对 `MetaXRSimulator.exe` / `ISDKEngineTelemetry.dll` 的 Code Integrity 阻止未复现。
+- 该现象只记录为本机 A/B 相关性，不视为微软官方确认的 KB 因果问题。
+
+### 12.2 P1 Coin 允许开始
+
+P1 目标保持 §7.4 定义：
+
+- 真实比例硬币模型。
+- Rigidbody。
+- 重力。
+- 旋转。
+- 舒适空间位置。
+
+P1 暂不进入：
+
+- Toss 状态机。
+- RNG。
+- Heads/Tails 结算。
+- Catch。
+- Recovery。
+- Signature Gesture。
+
+P1 仍必须遵守：
+
+- hands-first / controller-free。
+- Zero-UI。
+- Comfort Envelope。
+- 不破坏已经冻结通过的 P0 XR 输入基线。
 
