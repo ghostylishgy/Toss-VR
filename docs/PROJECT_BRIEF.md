@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.24 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.25 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.25 更新（2026-09-27，P1 relief 渲染路线冻结）：① 经 Muse 按 Unity 6 / URP 17.x / Meta 官方文档核查，Normal Map 只改变着色法线，不改变真实几何或 silhouette；URP Lit Height Map 为 parallax UV 偏移，不是真实 displacement；URP 原生无 tessellation、无 POM，Lit 也无内置 displacement；② Shader Graph 可做 vertex displacement，但受已有顶点密度约束，不能把低密 mesh 自动变成高质量雕塑；③ Toss Coin 的人物/翼徽等主要 bas-relief 改为 **真实几何 relief**，Unity 负责导入与实时 PBR，不再要求 `CoinTextureGenerator` 用 normal/AO/heightfield 承担主雕塑体积；④ 冻结管线原则：**Geometry for form, Normal/AO for micro-detail**；真实几何负责 silhouette、rim、edge、主要浮雕体积，Normal/AO 只负责发丝/刻痕/拉丝/沟槽等微细节；⑤ DCC（Blender/ZBrush 等）制作 relief → FBX 导入 Unity 为当前主路线，Shader Graph vertex displacement 仅保留为实验备选；⑥ 当前 `087cbb4` 的 Heads/Tails 可读性改进不视为最终视觉验收通过，P1.1 继续处于视觉迭代状态。
 >
 > v0.24 更新（2026-09-27，P1.1 candidate + Design Jam 收敛）：① Gemini 提交 `a4e1dfe` 作为 **P1.1 Coin Presence Baseline PASS candidate**；独立 Git 审计确认该提交仅新增 P1 资产/场景/脚本，未修改 P0 场景、P0_Configurator、OpenXR 设置或 SSOT；② P1.1 当前仍需人工视觉验收后才能正式 PASS，尤其确认 Heads/Tails 大形、侧面厚度、48 齿节奏、银色材质与深浅背景可读性；③ 当前 Heads/Tails“浮雕”主要由 normal/AO heightfield 表现，不得把其描述为已存在 0.35mm 的真实几何浮雕；④ P1.1 深/浅 backdrop 只作为可读性代理，不等于真实 passthrough 环境适应已验证；⑤ 采纳 Muse 复核：Summon/Dismiss 作为后续体验原则补位，但不提前冻结 Snap/Palm-up 主次；失败态坚持无 UI/无 fail buzz/自然等待或恢复；声音保持同一金属声学家族、近场低打扰，acoustic signature 长期打磨；⑥ 三个 P1 实验补验收信号：Finger Play 看无提示重复意愿，Perceived Weight 必含有声/无声 A/B 并回答“哪个更像手里有东西”，Invisible Generosity 记录辅助被察觉阈值；⑦ Micro-delight 只允许偶发、物理/手部动作驱动、不计数、不通知，**不得由 gaze 触发状态或彩蛋**。
 >
@@ -373,6 +375,17 @@ P1 必须同时考虑以下元素，而不只看静态模型：
    - **验收信号**：记录辅助开始被用户察觉的阈值；一旦明显感觉“系统把硬币吸过去/替我完成”，即视为越界。
    - 正式 Toss/Catch 逻辑仍属于后续 P2/P4；P1 只做原理验证，不扩张状态机。
 
+#### Coin Relief Rendering Pipeline（P1 正式路线）
+
+- **Geometry for form, Normal/AO for micro-detail.**
+- 必须使用真实几何表达：Coin 主体厚度、rim、reeded edge、Heads/Tails 的主要 bas-relief 体积与会影响斜角观感的曲面。
+- Normal Map / AO 只承担微细节：发丝、浅刻纹、细微拉丝、沟槽阴影等；不得再把它们描述成真实几何浮雕。
+- URP Lit Height Map 只作为浅层 parallax 备选，不承担 Hero Coin 的主要 relief。
+- Shader Graph vertex displacement 可做实验，但前提是 mesh 本身有足够顶点密度；当前不作为主资产生产线。
+- 主资产路线：**DCC sculpt/model → FBX → Unity Import Normals/Tangents → URP Lit PBR**。
+- Unity 的职责是实时渲染、材质、光照、动画与交互；不把 Unity/C# procedural heightfield 当成主要雕塑工具。
+- 具体 triangle budget 不预设拍脑袋数字；待 Meta VR Glasses 真机/目标设备 profiling 决定。
+
 #### Capability-dependent Extension
 
 - **Euler Disk / 真桌面旋转 + 死亡摇摆**被保留为高潜力 Signature Extension。
@@ -598,6 +611,8 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 | D-038 | 2026-09-27 | Summon/Dismiss 必须作为后续 Coin relationship 设计项，但当前只冻结 <1s/单手/低幅度/无 UI 等体验原则，不提前指定 Snap 或 Palm-up 为主手势 | Active |
 | D-039 | 2026-09-27 | P1 失败处理坚持无传统失败态：tracking/gesture 失败不弹 UI、不 fail buzz，采用稳定等待/settle/recover | Active |
 | D-040 | 2026-09-27 | `a4e1dfe` 仅作为 **P1.1 PASS candidate**；在人工视觉验收完成前不得宣布 P1.1 PASS；深浅 backdrop 不等同于真实 passthrough 验证，normal-map relief 不得描述为真实几何深度 | Active |
+| D-041 | 2026-09-27 | P1 Hero Coin relief 正式采用 **Geometry for form, Normal/AO for micro-detail**；DCC 真实 bas-relief Mesh → FBX → Unity PBR 为主路线，程序化 normal/heightfield 不再承担主要雕塑体积 | Active |
+| D-042 | 2026-09-27 | `087cbb4` 仅证明 Heads/Tails 大形可读性提高，不代表高级雕塑质感已达标；P1.1 视觉验收继续未通过，禁止基于当前浮雕继续进入 P1.2 | Active |
 
 ---
 
@@ -645,7 +660,7 @@ P1 的目标不再只是“把硬币放进场景”，而是按 §5.6 验证：
 
 P1 首轮实现 / 原型范围：
 
-1. Coin Presence：形、材质、比例、边缘、Heads/Tails 大剪影、基础空间位置。
+1. Coin Presence：形、材质、比例、边缘、Heads/Tails 大剪影、基础空间位置；主要 relief 必须按 §5.6 的 Coin Relief Rendering Pipeline 使用真实几何资产路线。
 2. Motion Readability：静态 + 360° flip/roll/rotation 观察。
 3. Finger Play 最小原型。
 4. Perceived Weight A/B 原型。
