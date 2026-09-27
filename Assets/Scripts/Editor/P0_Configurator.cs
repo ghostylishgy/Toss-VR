@@ -264,18 +264,15 @@ namespace Toss.Editor
             "ApiLayersFeature"
         };
 
-        private static readonly HashSet<string> s_blockedOpenXRFeatureTypes = new HashSet<string>(StringComparer.Ordinal)
+        private static bool IsExplicitlyBlockedFeature(string typeName)
         {
-            "MicrosoftHandInteraction",         // XR_MSFT_hand_interaction (/interaction_profiles/microsoft/hand_interaction) - MUST BE DISABLED
-            "MicrosoftMotionControllerProfile", // Third-party profile
-            "HTCViveControllerProfile",         // Third-party profile
-            "ValveIndexControllerProfile",      // Third-party profile
-            "HPReverbG2ControllerProfile",      // Third-party profile
-            "AndroidMouseInteractionProfile",   // Third-party profile
-            "KHRSimpleControllerProfile",       // Fallback controller profile
-            "DPadInteraction",
-            "PalmPoseInteraction"
-        };
+            return typeName == "MicrosoftHandInteraction";
+        }
+
+        private static bool IsExplicitlyRequiredFeature(string typeName)
+        {
+            return s_allowedOpenXRFeatureTypes.Contains(typeName);
+        }
 
         private static void ConfigureBuildTargetXR(BuildTargetGroup group)
         {
@@ -310,32 +307,28 @@ namespace Toss.Editor
                     {
                         if (f == null) continue;
                         string typeName = f.GetType().Name;
-                        string fullName = f.GetType().FullName ?? "";
 
-                        // Explicit Blocklist & Defense-in-depth:
-                        // Reject any Microsoft profiles or third-party controller profiles
-                        bool isExplicitlyBlocked = s_blockedOpenXRFeatureTypes.Contains(typeName) ||
-                                                   typeName.Contains("Microsoft") ||
-                                                   fullName.Contains("Microsoft");
-
-                        // Explicit Allowlist:
-                        // Only enable features that belong to Meta XR or official Khronos EXT Look-and-Pinch pipeline
-                        bool isExplicitlyAllowed = !isExplicitlyBlocked && s_allowedOpenXRFeatureTypes.Contains(typeName);
-
-                        if (isExplicitlyBlocked)
+                        // Case A: Exact Block (only MicrosoftHandInteraction)
+                        if (IsExplicitlyBlockedFeature(typeName))
                         {
-                            f.enabled = false;
-                            Debug.Log($"[P0_Configurator] OpenXR Feature EXPLICITLY BLOCKED ({group}): {typeName} ({f.name})");
+                            if (f.enabled)
+                            {
+                                f.enabled = false;
+                                Debug.Log($"[P0_Configurator] OpenXR Feature EXPLICITLY BLOCKED ({group}): {typeName} ({f.name})");
+                            }
                         }
-                        else if (isExplicitlyAllowed)
+                        // Case B: Exact Required (P0 allowlisted features)
+                        else if (IsExplicitlyRequiredFeature(typeName))
                         {
-                            f.enabled = true;
-                            Debug.Log($"[P0_Configurator] OpenXR Feature ENABLED ({group}): {typeName} ({f.name})");
+                            if (!f.enabled)
+                            {
+                                f.enabled = true;
+                                Debug.Log($"[P0_Configurator] OpenXR Feature REQUIRED & ENABLED ({group}): {typeName} ({f.name})");
+                            }
                         }
                         else
                         {
-                            f.enabled = false;
-                            Debug.Log($"[P0_Configurator] OpenXR Feature DISABLED (Not in allowlist) ({group}): {typeName} ({f.name})");
+                            // Case C: All other features - preserve existing state. DO NOT mutate.
                         }
                     }
                     EditorUtility.SetDirty(openXRSettings);
