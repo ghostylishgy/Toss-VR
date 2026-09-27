@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.23 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.24 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.24 更新（2026-09-27，P1.1 candidate + Design Jam 收敛）：① Gemini 提交 `a4e1dfe` 作为 **P1.1 Coin Presence Baseline PASS candidate**；独立 Git 审计确认该提交仅新增 P1 资产/场景/脚本，未修改 P0 场景、P0_Configurator、OpenXR 设置或 SSOT；② P1.1 当前仍需人工视觉验收后才能正式 PASS，尤其确认 Heads/Tails 大形、侧面厚度、48 齿节奏、银色材质与深浅背景可读性；③ 当前 Heads/Tails“浮雕”主要由 normal/AO heightfield 表现，不得把其描述为已存在 0.35mm 的真实几何浮雕；④ P1.1 深/浅 backdrop 只作为可读性代理，不等于真实 passthrough 环境适应已验证；⑤ 采纳 Muse 复核：Summon/Dismiss 作为后续体验原则补位，但不提前冻结 Snap/Palm-up 主次；失败态坚持无 UI/无 fail buzz/自然等待或恢复；声音保持同一金属声学家族、近场低打扰，acoustic signature 长期打磨；⑥ 三个 P1 实验补验收信号：Finger Play 看无提示重复意愿，Perceived Weight 必含有声/无声 A/B 并回答“哪个更像手里有东西”，Invisible Generosity 记录辅助被察觉阈值；⑦ Micro-delight 只允许偶发、物理/手部动作驱动、不计数、不通知，**不得由 gaze 触发状态或彩蛋**。
 >
 > v0.23 更新（2026-09-27，P1 产品哲学冻结）：① P1 从“做一枚硬币资产”升级为 **Coin Presence / Coin Play**：设计目标是一件住在眼镜里的数字随身小物，而不只是 Coin Flip 工具；② 当前核心产品假设为 **Fidget-first**：把玩可能是留存引擎，Decision Utility 是自然分支，但该假设需由原型验证，不视为已证明事实；③ 冻结六条 P1 原则：quarter-inspired 熟悉锚点、双态性格、Invisible Generosity、Low-attention Play、Occlusion as Magic、Physical enough to believe / Designed enough to enjoy；④ 重量感不得依赖硬币 squash/stretch 或篡改用户真实手视觉，而应来自硬币自身的惯性/时序/遮挡/声音/settle；⑤ P1 设计需同时考虑视觉、材质、声音、运动、节奏、环境适应与长期关系感（patina）；⑥ P1 首轮只验证 Finger Play、Perceived Weight、Invisible Generosity 三类核心体验，Euler Disk/真实桌面交互列为后续 capability-dependent extension；⑦ P1 不进入正式 Toss 状态机、RNG、Catch/Recovery 或结果结算。
 >
@@ -358,14 +360,17 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 1. **Finger Play**
    - 验证拇指拨、翻、捻、掌心把玩等低能量循环是否本身就足够 satisfying。
    - 重点观察：节奏、惯性、edge highlight、声音同步、可重复性。
+   - **验收信号**：用户在无提示情况下是否会主动重复把玩、是否能自然形成自己的节奏；看行为，不只问主观评分。
 
 2. **Perceived Weight**
    - 对比 rigid 跟随、spring-damper、不同 angular inertia、settle、有声/无声等方案。
+   - 必须包含 **有声 / 无声 A/B**。
    - 问题不是“哪个最真实”，而是：**哪个最像手里真的有个东西**。
    - 所有 lag / damping 数值均为待实验参数，不冻结具体毫秒数。
 
 3. **Invisible Generosity**
    - 对比纯物理、微辅助、明显辅助，寻找“系统已经帮了很多，但用户没有察觉”的边界。
+   - **验收信号**：记录辅助开始被用户察觉的阈值；一旦明显感觉“系统把硬币吸过去/替我完成”，即视为越界。
    - 正式 Toss/Catch 逻辑仍属于后续 P2/P4；P1 只做原理验证，不扩张状态机。
 
 #### Capability-dependent Extension
@@ -373,6 +378,19 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 - **Euler Disk / 真桌面旋转 + 死亡摇摆**被保留为高潜力 Signature Extension。
 - Scene/Depth/Spatial Mesh/桌面碰撞的实际稳定性必须先验证，不能成为 Competition Build 核心依赖。
 - 环境光估计、真实桌面锚定、长期 Spatial Anchor 等能力在确认前均保持可选实验，不得提前写死到主流程。
+
+#### Summon / Dismiss 体验原则（后续阶段）
+
+- 召唤 / 收起属于用户与 Toss Coin 的核心关系设计，目标是 **<1s、单手、低幅度、低注意力、公共场景可接受、无传统 UI**。
+- 当前不冻结具体主手势。Palm-up、Snap、身体“口袋位”等均为候选，必须以 Meta 实测稳定性和误触率决定。
+- 识别失败时静默处理，不弹错误 UI，不播放 fail buzz，不把 tracking 失败变成用户的“错误”。
+- 首次召唤可探索一次性轻仪式，但具体时长与表现必须经体验验证，不提前写死。
+
+#### Failure / Sound / Delight 边界
+
+- **Failure attitude**：P1/P2 不设计传统失败态。手势丢失、未识别或动作中断时，硬币应保持稳定、自然 settle / wait / recover。
+- **Sound family**：声音应来自统一的温润金属声学家族，近距离、低打扰；后续允许形成极短 acoustic signature，但不以高穿透“金币叮”制造存在感。
+- **Micro-delight**：允许偶发、物理或手部动作驱动的小惊喜；不计数、不通知、不形成任务/成就系统；gaze 仍只表示 attention，禁止 gaze 单独触发彩蛋或状态变化。
 
 ---
 
@@ -577,6 +595,9 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 | D-035 | 2026-09-27 | 冻结 P1 交互哲学：**Invisible Generosity / Low-attention Play / Occlusion as Magic / Physical enough to believe, Designed enough to enjoy** | Active |
 | D-036 | 2026-09-27 | P1 重量感不得依赖硬币 squash/stretch 或篡改用户真实手视觉；优先通过硬币自身惯性、timing、遮挡、声音与 settle 建立 pseudo-haptics | Active |
 | D-037 | 2026-09-27 | P1 首轮只验证 Finger Play、Perceived Weight、Invisible Generosity 三类最小实验；Euler Disk/真实桌面交互为 capability-dependent extension | Active |
+| D-038 | 2026-09-27 | Summon/Dismiss 必须作为后续 Coin relationship 设计项，但当前只冻结 <1s/单手/低幅度/无 UI 等体验原则，不提前指定 Snap 或 Palm-up 为主手势 | Active |
+| D-039 | 2026-09-27 | P1 失败处理坚持无传统失败态：tracking/gesture 失败不弹 UI、不 fail buzz，采用稳定等待/settle/recover | Active |
+| D-040 | 2026-09-27 | `a4e1dfe` 仅作为 **P1.1 PASS candidate**；在人工视觉验收完成前不得宣布 P1.1 PASS；深浅 backdrop 不等同于真实 passthrough 验证，normal-map relief 不得描述为真实几何深度 | Active |
 
 ---
 
