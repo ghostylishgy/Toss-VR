@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.19 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.20 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.20 更新（2026-09-27，OpenXR mutation 收窄完成）：① 提交 `7c86e6d` 仅修改 `Assets/Scripts/Editor/P0_Configurator.cs`；② `MicrosoftHandInteraction` 现在仅通过 exact type match 禁用；③ required P0 feature 仅通过 exact allowlist 启用；④ 所有其他 OpenXR feature 保持当前 enabled state，不再自动 enable/disable；⑤ `Contains("Microsoft")` / `Contains("Hand")` / `Contains("Eye")` / `Contains("Aim")` 等模糊 mutation 已移除；⑥ Interaction Rig、validation scene、LookPinchTester、OpenXR Package Settings、ProjectSettings、Packages 均未修改；⑦ 下一步仅剩 clean-session GUI 最终复测。
 >
 > v0.19 更新（2026-09-27，OpenXR cleanup 代码审查）：① `272928e` 已正确把 Standalone/Android 的 `MicrosoftHandInteraction` 从 enabled 改为 disabled，且未改 Interaction Rig/验证场景；② 根因确认：旧 `ConfigureBuildTargetXR()` 的 `Contains("Hand")` 模糊匹配误启用了 `MicrosoftHandInteraction`；③ 但新实现仍存在过度配置风险：对所有不在 allowlist 的 OpenXR Feature 执行 `enabled=false`，且 block 判断仍包含 `typeName.Contains("Microsoft")` / `fullName.Contains("Microsoft")`，不符合最小变更原则；④ 因此 `272928e` 作为配置资产修复是正确的，但 Configurator 逻辑仍需再收窄为“只修改明确目标 feature，其他 feature 保持原状态”；⑤ clean-session GUI 复测在该收窄完成后执行。
 >
@@ -485,73 +487,69 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-028 | 2026-09-27 | 禁止通过 feature 名称模糊匹配批量启用 OpenXR feature；P0 以后只允许显式 allowlist/featureId 配置 | Active |
 | D-029 | 2026-09-27 | `272928e` 的 Microsoft profile 资产清理被接受，但其 Configurator 不得把“未列入 allowlist”解释为“必须禁用”；未知/无关 feature 默认保持现状，不主动改写 | Active |
 | D-030 | 2026-09-27 | OpenXR feature mutation 只允许 exact type / exact featureId；禁止 `Contains("Microsoft")` 等模糊 block/allow 规则 | Active |
+| D-031 | 2026-09-27 | `7c86e6d` 接受为 P0 OpenXR mutation 最小修复：未知/无关 feature 保持原状态，仅 exact block/required feature 可被修改 | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Narrow OpenXR Mutation, Then Clean-session Retest。**
+**当前阶段：P0 Environment — Final Clean-session GUI Gate。**
 
-### 12.1 已接受的修复
+### 12.1 工程状态
 
-提交 `272928e` 中以下事实已接受：
+提交 `7c86e6d` 已完成 OpenXR mutation 最小收尾：
 
-- `MicrosoftHandInteraction Android`：`m_enabled 1 → 0`。
-- `MicrosoftHandInteraction Standalone`：`m_enabled 1 → 0`。
-- Interaction Rig / validation scene / LookPinchTester 未修改。
-- 根因是旧 Configurator 的 `Contains("Hand")` 误命中 Microsoft Hand Interaction Profile。
-- 当前工作区 clean，提交已 push。
+- 仅修改 `Assets/Scripts/Editor/P0_Configurator.cs`。
+- `MicrosoftHandInteraction`：exact match → disable。
+- P0 required features：exact allowlist → enable。
+- 其他 feature：保持当前 enabled state，不修改。
+- 无 fuzzy Contains/StartsWith mutation。
+- Interaction Rig / scene / LookPinchTester / OpenXR settings asset 均未改。
 
-### 12.2 尚未接受的 Configurator 行为
+因此配置代码已满足最小变更原则。
 
-当前新逻辑仍会：
+### 12.2 最终 GUI Gate
 
-```text
-else:
-    f.enabled = false
-```
+现在不再修改代码。侃哥执行一次全新会话：
 
-即所有“不在 allowlist”的 OpenXR feature 都会被主动关闭。
+1. 完全关闭 Unity Editor。
+2. 完全关闭 Meta XR Simulator。
+3. 重新启动 Meta XR Simulator v207。
+4. Synthetic Environment 保持 OFF。
+5. Runtime Enabled；Device = Meta VR Glasses；Left/Right = Look and Pinch。
+6. 从 Unity Hub 打开 `G:\Dev\Toss-VR`。
+7. 打开 `P0_EnvironmentValidation`。
+8. Clear Console。
+9. Play。
+10. 确认不再出现：
+   - `/interaction_profiles/microsoft/hand_interaction`
+   - 对应 `XR_ERROR_HANDLE_INVALID`
+   - NullReferenceException
+   - MissingReferenceException
+11. gaze target → Gold。
+12. pinch target → Cyan。
+13. Stop。
+14. 再次 Play。
+15. 再次 gaze → Gold / pinch → Cyan。
 
-这不是 P0 cleanup 所需行为，也会给后续 P1/P2 或新的 Meta SDK feature 带来隐性副作用。
+### 12.3 P0 PASS Gate
 
-此外仍存在：
+若上述 clean session 满足：
 
-```text
-typeName.Contains("Microsoft")
-fullName.Contains("Microsoft")
-```
+- Microsoft profile error = 0。
+- Null/Missing reference error = 0。
+- Gaze hover 真实可重复。
+- Pinch select 真实可重复。
+- Stop → Play 后仍可重复。
+- Windows 1158 USER handle error 在 fresh session 未快速复现。
 
-模糊判断，不符合 exact-match 规则。
-
-### 12.3 必须收窄
-
-`ConfigureBuildTargetXR()` 应改为：
-
-- 对明确错误的 `MicrosoftHandInteraction`：exact match → disable。
-- 对 P0 明确必需、已确认的输入 feature：必要时 exact match → enable。
-- 对其他 feature：**保持当前 enabled 状态，不修改**。
-- 不得因为“不在 allowlist”而关闭。
-- 不得使用 Contains/StartsWith 等模糊匹配决定 enabled state。
-
-### 12.4 然后执行最终 GUI Gate
-
-收窄后：
-
-1. 完全退出 Unity Editor 与 Simulator。
-2. 重新打开 Simulator，Synthetic Environment OFF，Meta VR Glasses。
-3. 打开 Unity / P0 scene / Play。
-4. Console 不再出现 `/interaction_profiles/microsoft/hand_interaction` 与对应 `XR_ERROR_HANDLE_INVALID`。
-5. gaze → 黄色。
-6. pinch → 青色。
-7. Stop → Play 再重复一次。
-8. clean launch 中若 1158 USER handle error 不再复现，记录为旧长会话 transient issue。
-
-全部通过后才允许：
+则正式更新：
 
 ```text
 P0 = PASS
 ```
 
-**P0 PASS 前禁止进入 P1。**
+若只有 Windows 1158 在长时间会话后偶发、fresh session 不复现，则记录为 host/editor transient issue，不阻断 XR core P0。
+
+**完成最终 Gate 前仍保持 P0 = NOT PASS；P0 PASS 前禁止进入 P1。**
 
