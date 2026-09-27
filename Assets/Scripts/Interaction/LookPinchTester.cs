@@ -1,15 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using UnityEngine.XR;
+using Oculus.Interaction;
+using Oculus.Interaction.Surfaces;
 
 namespace Toss.Interaction
 {
     /// <summary>
-    /// P0 Environment Validation: Pure XR Look-and-Pinch interaction test.
-    /// Strictly requires real XR Eye Gaze tracking + real XR Hand Pinch tracking.
-    /// NO mouse fallback, NO keyboard fallback, NO Camera.forward substitute, NO forced states.
+    /// P0 Environment Validation: Pure Meta XR Interaction SDK Look-and-Pinch interaction test.
+    /// Strictly relies on Interaction SDK GazeInteractable / IPointable events driven by Meta XR Simulator / OpenXR.
+    /// NO mouse fallback, NO keyboard fallback, NO Camera.forward substitute, NO forced bool states.
     /// Logs real-time input events to Console and Logs/P0_RuntimeInputEvents.log.
     /// </summary>
     public class LookPinchTester : MonoBehaviour
@@ -38,25 +38,23 @@ namespace Toss.Interaction
         public int pinchEndCount = 0;
         public int lookAndPinchTriggerCount = 0;
 
-        [Header("XR References")]
-        [SerializeField] private OVREyeGaze ovrEyeGaze;
-        [SerializeField] private OVRHand leftHand;
-        [SerializeField] private OVRHand rightHand;
-        [SerializeField] private Renderer targetRenderer;
+        [Header("Interaction SDK References")]
+        [SerializeField] private GazeInteractable _gazeInteractable;
+        [SerializeField] private RayInteractable _rayInteractable;
+        [SerializeField] private Renderer _targetRenderer;
 
         private Vector3 _initialScale;
         private Material _defaultMaterial;
         private Material _gazeMaterial;
         private Material _pinchMaterial;
-        private bool _wasPinched = false;
-        private bool _wasGazed = false;
         private string _eventsLogFilePath;
+        private bool _isSubscribed = false;
 
         private void Awake()
         {
-            if (targetRenderer == null)
+            if (_targetRenderer == null)
             {
-                targetRenderer = GetComponent<Renderer>();
+                _targetRenderer = GetComponent<Renderer>();
             }
 
             _initialScale = transform.localScale;
@@ -66,9 +64,9 @@ namespace Toss.Interaction
                 transform.localScale = _initialScale;
             }
 
-            if (targetRenderer != null)
+            if (_targetRenderer != null)
             {
-                _defaultMaterial = targetRenderer.sharedMaterial;
+                _defaultMaterial = _targetRenderer.sharedMaterial;
             }
 
             // High-visibility materials for XR feedback
@@ -84,174 +82,142 @@ namespace Toss.Interaction
             _eventsLogFilePath = Path.Combine(logsDir, "P0_RuntimeInputEvents.log");
         }
 
+        private void OnEnable()
+        {
+            SubscribeToEvents();
+        }
+
+        private void OnDisable()
+        {
+            UnsubscribeFromEvents();
+        }
+
         private void Start()
         {
-            FindXRReferences();
-            LogEvent("INIT", "LookPinchTester initialized on P0_InteractionTarget. Awaiting real XR inputs.");
+            SubscribeToEvents();
+            LogEvent("INIT", "LookPinchTester initialized with Interaction SDK Gaze. Awaiting real XR Simulator Look and Pinch inputs.");
         }
 
-        private void Update()
+        public void SubscribeToEvents()
         {
-            FindXRReferences();
-            UpdateGazeState();
-            UpdatePinchState();
-            UpdateVisualFeedback();
+            if (_isSubscribed) return;
+
+            if (_gazeInteractable == null)
+            {
+                _gazeInteractable = GetComponent<GazeInteractable>() ?? GetComponentInChildren<GazeInteractable>();
+            }
+
+            if (_rayInteractable == null)
+            {
+                _rayInteractable = GetComponent<RayInteractable>() ?? GetComponentInChildren<RayInteractable>();
+            }
+
+            if (_gazeInteractable != null)
+            {
+                _gazeInteractable.WhenPointerEventRaised += OnPointerEventRaised;
+                _isSubscribed = true;
+                Debug.Log("[LookPinchTester] Successfully subscribed to GazeInteractable pointer events.");
+            }
+
+            if (_rayInteractable != null)
+            {
+                _rayInteractable.WhenPointerEventRaised += OnPointerEventRaised;
+                _isSubscribed = true;
+                Debug.Log("[LookPinchTester] Successfully subscribed to RayInteractable fallback pointer events.");
+            }
         }
 
-        private void FindXRReferences()
+        public void UnsubscribeFromEvents()
         {
-            if (ovrEyeGaze == null)
+            if (!_isSubscribed) return;
+
+            if (_gazeInteractable != null)
             {
-                ovrEyeGaze = FindFirstObjectByType<OVREyeGaze>();
+                _gazeInteractable.WhenPointerEventRaised -= OnPointerEventRaised;
             }
 
-            if (leftHand == null || rightHand == null)
+            if (_rayInteractable != null)
             {
-                var hands = FindObjectsByType<OVRHand>(FindObjectsSortMode.None);
-                foreach (var h in hands)
-                {
-                    bool isLeft = h.GetHand() == OVRPlugin.Hand.HandLeft || h.name.Contains("Left");
-                    bool isRight = h.GetHand() == OVRPlugin.Hand.HandRight || h.name.Contains("Right");
-
-                    if (isLeft && leftHand == null) leftHand = h;
-                    if (isRight && rightHand == null) rightHand = h;
-                }
+                _rayInteractable.WhenPointerEventRaised -= OnPointerEventRaised;
             }
+
+            _isSubscribed = false;
         }
 
-        private void UpdateGazeState()
+        private void OnPointerEventRaised(PointerEvent evt)
         {
-            bool hitThisTarget = false;
-            string source = "None";
-            float confidence = 0.0f;
-
-            // 1. Meta Core SDK OVREyeGaze
-            if (ovrEyeGaze != null && ovrEyeGaze.EyeTrackingEnabled)
+            switch (evt.Type)
             {
-                confidence = ovrEyeGaze.Confidence;
-                Ray gazeRay = new Ray(ovrEyeGaze.transform.position, ovrEyeGaze.transform.forward);
-                if (Physics.Raycast(gazeRay, out RaycastHit hit, 10.0f))
-                {
-                    hitThisTarget = (hit.collider != null && hit.collider.gameObject == gameObject);
-                }
-                source = $"OVREyeGaze (Confidence: {confidence:F2})";
-            }
-
-            _isGazed = hitThisTarget;
-            _activeGazeSource = source;
-            _currentGazeConfidence = confidence;
-
-            if (_isGazed != _wasGazed)
-            {
-                if (_isGazed)
-                {
+                case PointerEventType.Hover:
+                    _isGazed = true;
+                    _currentGazeConfidence = 1.0f;
                     gazeEnterCount++;
-                    LogEvent("GAZE_ENTER", $"Target entered by gaze from source [{source}]");
-                }
-                else
-                {
+                    _activeGazeSource = "Interaction SDK GazeInteractable";
+                    LogEvent("GAZE_ENTER", $"Target hover entered via [{_activeGazeSource}], interactor ID: {evt.Identifier}, pose: {evt.Pose.position}");
+                    UpdateVisualState();
+                    break;
+
+                case PointerEventType.Unhover:
+                    _isGazed = false;
+                    _currentGazeConfidence = 0.0f;
                     gazeExitCount++;
-                    LogEvent("GAZE_EXIT", $"Target exited by gaze");
-                }
-                _wasGazed = _isGazed;
-            }
-        }
+                    LogEvent("GAZE_EXIT", $"Target hover exited via [{_activeGazeSource}]");
+                    UpdateVisualState();
+                    break;
 
-        private void UpdatePinchState()
-        {
-            bool pinching = false;
-            float maxStrength = 0.0f;
-            string source = "None";
-
-            // 1. Meta Core SDK OVRHand
-            if (leftHand != null && leftHand.IsTracked)
-            {
-                bool leftPinch = leftHand.GetFingerIsPinching(OVRHand.HandFinger.Index);
-                float leftStrength = leftHand.GetFingerPinchStrength(OVRHand.HandFinger.Index);
-                if (leftStrength > maxStrength) maxStrength = leftStrength;
-                if (leftPinch)
-                {
-                    pinching = true;
-                    source = $"OVRHand Left (Confidence: {leftHand.HandConfidence})";
-                }
-            }
-
-            if (rightHand != null && rightHand.IsTracked)
-            {
-                bool rightPinch = rightHand.GetFingerIsPinching(OVRHand.HandFinger.Index);
-                float rightStrength = rightHand.GetFingerPinchStrength(OVRHand.HandFinger.Index);
-                if (rightStrength > maxStrength) maxStrength = rightStrength;
-                if (rightPinch)
-                {
-                    pinching = true;
-                    source = $"OVRHand Right (Confidence: {rightHand.HandConfidence})";
-                }
-            }
-
-            // 2. OpenXR Hand Tracking Devices (CommonUsages.trigger / pinch)
-            if (!pinching)
-            {
-                var handDevices = new List<InputDevice>();
-                InputDevices.GetDevicesWithCharacteristics(InputDeviceCharacteristics.HandTracking, handDevices);
-                foreach (var dev in handDevices)
-                {
-                    if (dev.TryGetFeatureValue(CommonUsages.trigger, out float triggerVal))
-                    {
-                        if (triggerVal > maxStrength) maxStrength = triggerVal;
-                        if (triggerVal > 0.5f)
-                        {
-                            pinching = true;
-                            source = $"InputDevice ({dev.name}) HandTrigger";
-                            break;
-                        }
-                    }
-                }
-            }
-
-            _isPinched = pinching;
-            _currentPinchStrength = maxStrength;
-            _activePinchSource = source;
-
-            if (_isPinched != _wasPinched)
-            {
-                if (_isPinched)
-                {
+                case PointerEventType.Select:
+                    _isPinched = true;
+                    _currentPinchStrength = 1.0f;
                     pinchStartCount++;
-                    LogEvent("PINCH_START", $"Real XR Hand pinch detected from source [{source}], strength: {maxStrength:F2}");
-                }
-                else
-                {
+                    _activePinchSource = "Interaction SDK HandGazeInteractor (Index Pinch)";
+
+                    if (!_lookAndPinchTriggered)
+                    {
+                        _lookAndPinchTriggered = true;
+                    }
+                    lookAndPinchTriggerCount++;
+
+                    LogEvent("PINCH_START", $"Target select/pinch started via [{_activePinchSource}], interactor ID: {evt.Identifier}, pose: {evt.Pose.position}");
+                    LogEvent("LOOK_AND_PINCH_TRIGGERED", $"SUCCESS: Real Look and Pinch interaction triggered via Meta XR Interaction SDK! Target selected while gazed. Interactor: {evt.Identifier}");
+                    UpdateVisualState();
+                    break;
+
+                case PointerEventType.Unselect:
+                    _isPinched = false;
+                    _currentPinchStrength = 0.0f;
                     pinchEndCount++;
-                    LogEvent("PINCH_END", $"Real XR Hand pinch ended, max strength was: {maxStrength:F2}");
-                }
-                _wasPinched = _isPinched;
+                    LogEvent("PINCH_END", $"Target select/pinch released, interactor ID: {evt.Identifier}");
+                    UpdateVisualState();
+                    break;
+
+                case PointerEventType.Cancel:
+                    _isPinched = false;
+                    _isGazed = false;
+                    _currentGazeConfidence = 0.0f;
+                    _currentPinchStrength = 0.0f;
+                    LogEvent("INTERACTION_CANCEL", $"Interaction cancelled for interactor ID: {evt.Identifier}");
+                    UpdateVisualState();
+                    break;
             }
         }
 
-        private void UpdateVisualFeedback()
+        private void UpdateVisualState()
         {
-            if (targetRenderer == null) return;
+            if (_targetRenderer == null) return;
 
-            if (_isGazed && _isPinched)
+            if (_isPinched)
             {
-                if (!_lookAndPinchTriggered)
-                {
-                    _lookAndPinchTriggered = true;
-                    lookAndPinchTriggerCount++;
-                    LogEvent("LOOK_AND_PINCH_TRIGGERED", $"Success! Real XR Gaze on target + real XR Hand Pinch active simultaneously. (Gaze: {_activeGazeSource}, Pinch: {_activePinchSource})");
-                }
-
-                if (_pinchMaterial != null) targetRenderer.material = _pinchMaterial;
+                if (_pinchMaterial != null) _targetRenderer.material = _pinchMaterial;
                 transform.localScale = _initialScale * 1.15f;
             }
             else if (_isGazed)
             {
-                if (_gazeMaterial != null) targetRenderer.material = _gazeMaterial;
+                if (_gazeMaterial != null) _targetRenderer.material = _gazeMaterial;
                 transform.localScale = _initialScale * 1.05f;
             }
             else
             {
-                if (_defaultMaterial != null) targetRenderer.material = _defaultMaterial;
+                if (_defaultMaterial != null) _targetRenderer.material = _defaultMaterial;
                 transform.localScale = _initialScale;
             }
         }

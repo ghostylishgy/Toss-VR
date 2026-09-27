@@ -11,6 +11,9 @@ using UnityEditor.XR.OpenXR;
 using UnityEngine;
 using UnityEngine.XR.Management;
 using UnityEngine.XR.OpenXR;
+using Oculus.Interaction;
+using Oculus.Interaction.Input;
+using Oculus.Interaction.Surfaces;
 using Toss.Diagnostics;
 using Toss.Interaction;
 
@@ -111,7 +114,7 @@ namespace Toss.Editor
             // 4. Auto-Fix standard Meta project setup issues
             AutoFixProjectSetup();
 
-            // 5. Setup Validation Scene
+            // 5. Setup Validation Scene with official Interaction SDK Gaze architecture
             SetupValidationScene();
 
             AssetDatabase.SaveAssets();
@@ -157,39 +160,43 @@ namespace Toss.Editor
                     var getTasksMethod = setupType.GetMethod("GetTasks", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(BuildTargetGroup) }, null);
                     if (getTasksMethod != null)
                     {
-                        var tasks = getTasksMethod.Invoke(null, new object[] { BuildTargetGroup.Android }) as IEnumerable;
-                        if (tasks != null)
+                        var targets = new[] { BuildTargetGroup.Android, BuildTargetGroup.Standalone };
+                        foreach (var target in targets)
                         {
-                            foreach (var task in tasks)
+                            var tasks = getTasksMethod.Invoke(null, new object[] { target }) as IEnumerable;
+                            if (tasks != null)
                             {
-                                var validProp = task.GetType().GetProperty("Valid");
-                                object validObj = validProp?.GetValue(task);
-                                if (validObj != null)
+                                foreach (var task in tasks)
                                 {
-                                    var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                    bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { BuildTargetGroup.Android }) ?? true);
-                                    if (!isValid) continue;
-                                }
-
-                                var isDoneProp = task.GetType().GetProperty("IsDone");
-                                var isDoneDelegate = isDoneProp?.GetValue(task) as Delegate;
-                                bool isDone = false;
-                                if (isDoneDelegate != null)
-                                {
-                                    try { isDone = (bool)isDoneDelegate.DynamicInvoke(BuildTargetGroup.Android); } catch { }
-                                }
-
-                                if (!isDone)
-                                {
-                                    var fixActionProp = task.GetType().GetProperty("FixAction");
-                                    var fixActionDelegate = fixActionProp?.GetValue(task) as Delegate;
-                                    if (fixActionDelegate != null)
+                                    var validProp = task.GetType().GetProperty("Valid");
+                                    object validObj = validProp?.GetValue(task);
+                                    if (validObj != null)
                                     {
-                                        try
+                                        var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                        bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { target }) ?? true);
+                                        if (!isValid) continue;
+                                    }
+
+                                    var isDoneProp = task.GetType().GetProperty("IsDone");
+                                    var isDoneDelegate = isDoneProp?.GetValue(task) as Delegate;
+                                    bool isDone = false;
+                                    if (isDoneDelegate != null)
+                                    {
+                                        try { isDone = (bool)isDoneDelegate.DynamicInvoke(target); } catch { }
+                                    }
+
+                                    if (!isDone)
+                                    {
+                                        var fixActionProp = task.GetType().GetProperty("FixAction");
+                                        var fixActionDelegate = fixActionProp?.GetValue(task) as Delegate;
+                                        if (fixActionDelegate != null)
                                         {
-                                            fixActionDelegate.DynamicInvoke(BuildTargetGroup.Android);
+                                            try
+                                            {
+                                                fixActionDelegate.DynamicInvoke(target);
+                                            }
+                                            catch { }
                                         }
-                                        catch { }
                                     }
                                 }
                             }
@@ -286,10 +293,7 @@ namespace Toss.Editor
             string scenePath = "Assets/Scenes/P0_EnvironmentValidation.unity";
             var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
-            // Clean up standalone Main Camera if OVRCameraRig is used
-            var oldCams = GameObject.FindGameObjectsWithTag("MainCamera");
-
-            // Setup OVRCameraRig
+            // 1. Setup / Find OVRCameraRig
             var rigGo = GameObject.Find("OVRCameraRig");
             if (rigGo == null)
             {
@@ -309,49 +313,253 @@ namespace Toss.Editor
             rigGo.transform.position = Vector3.zero;
             rigGo.transform.rotation = Quaternion.identity;
 
-            // Configure OVRManager
-            var ovrManager = rigGo.GetComponent<OVRManager>();
-            if (ovrManager == null) ovrManager = rigGo.AddComponent<OVRManager>();
+            // Configure OVRManager: FloorLevel tracking
+            var ovrManager = rigGo.GetComponent<OVRManager>() ?? rigGo.AddComponent<OVRManager>();
             ovrManager.trackingOriginType = OVRManager.TrackingOrigin.FloorLevel;
 
-            // Ensure Eye Gaze component on CenterEyeAnchor
+            // 2. Clean up duplicate standalone Camera and AudioListener instances
             var centerEye = rigGo.transform.Find("TrackingSpace/CenterEyeAnchor");
             if (centerEye != null)
             {
-                var eyeGaze = centerEye.GetComponent<OVREyeGaze>();
-                if (eyeGaze == null) eyeGaze = centerEye.gameObject.AddComponent<OVREyeGaze>();
-                eyeGaze.Eye = OVREyeGaze.EyeId.Left;
-                eyeGaze.ConfidenceThreshold = 0.1f;
-            }
+                var centerCam = centerEye.GetComponent<Camera>() ?? centerEye.gameObject.AddComponent<Camera>();
+                centerCam.tag = "MainCamera";
 
-            // Ensure Left and Right Hands with OVRHand
-            var leftHandAnchor = rigGo.transform.Find("TrackingSpace/LeftHandAnchor");
-            if (leftHandAnchor != null && leftHandAnchor.GetComponent<OVRHand>() == null)
-            {
-                var hand = leftHandAnchor.gameObject.AddComponent<OVRHand>();
-                var so = new SerializedObject(hand);
-                var prop = so.FindProperty("HandType");
-                if (prop != null)
+                // Ensure CenterEyeAnchor is the sole AudioListener
+                if (centerEye.GetComponent<AudioListener>() == null)
                 {
-                    prop.intValue = (int)OVRHand.Hand.HandLeft;
-                    so.ApplyModifiedProperties();
+                    centerEye.gameObject.AddComponent<AudioListener>();
+                }
+
+                // Remove obsolete Movement SDK OVREyeGaze if present on CenterEyeAnchor
+                var obsoleteEyeGaze = centerEye.GetComponent<OVREyeGaze>();
+                if (obsoleteEyeGaze != null)
+                {
+                    Debug.Log("[P0_Configurator] Removing legacy Movement OVREyeGaze from CenterEyeAnchor.");
+                    GameObject.DestroyImmediate(obsoleteEyeGaze);
                 }
             }
 
-            var rightHandAnchor = rigGo.transform.Find("TrackingSpace/RightHandAnchor");
-            if (rightHandAnchor != null && rightHandAnchor.GetComponent<OVRHand>() == null)
+            // Destroy any standalone Main Camera
+            var allCameras = GameObject.FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            foreach (var cam in allCameras)
             {
-                var hand = rightHandAnchor.gameObject.AddComponent<OVRHand>();
-                var so = new SerializedObject(hand);
-                var prop = so.FindProperty("HandType");
-                if (prop != null)
+                if (cam.gameObject.name == "Main Camera" && (cam.transform.parent == null || !cam.transform.IsChildOf(rigGo.transform)))
                 {
-                    prop.intValue = (int)OVRHand.Hand.HandRight;
-                    so.ApplyModifiedProperties();
+                    Debug.Log($"[P0_Configurator] Destroying redundant standalone camera: {cam.gameObject.name}");
+                    GameObject.DestroyImmediate(cam.gameObject);
                 }
             }
 
-            // Ensure Interaction Target exists at comfortable FOV (0, 1.2, 1.0)
+            // Destroy any duplicate AudioListener not on CenterEyeAnchor
+            var allListeners = GameObject.FindObjectsByType<AudioListener>(FindObjectsSortMode.None);
+            foreach (var listener in allListeners)
+            {
+                if (centerEye != null && listener.transform == centerEye) continue;
+                Debug.Log($"[P0_Configurator] Destroying extra AudioListener on: {listener.gameObject.name}");
+                GameObject.DestroyImmediate(listener);
+            }
+
+            // 3. Ensure OVRComprehensiveInteractionRig exists under OVRCameraRig
+            var interactionRigGo = GameObject.Find("OVRComprehensiveInteractionRig");
+            if (interactionRigGo == null)
+            {
+                var interactionRigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.interaction.ovr/Runtime/Prefabs/OVRComprehensiveInteractionRig.prefab");
+                if (interactionRigPrefab != null)
+                {
+                    interactionRigGo = (GameObject)PrefabUtility.InstantiatePrefab(interactionRigPrefab, rigGo.transform);
+                    interactionRigGo.name = "OVRComprehensiveInteractionRig";
+                    Debug.Log("[P0_Configurator] Instantiated OVRComprehensiveInteractionRig prefab.");
+                }
+            }
+
+            // 4. Ensure OVREyeGaze system (Interaction SDK DataSource + EyeGaze + GazeConecaster) exists
+            var trackingSpace = rigGo.transform.Find("TrackingSpace");
+            Transform eyeGazeParent = trackingSpace != null ? trackingSpace : rigGo.transform;
+            var ovrEyeGazeGo = GameObject.Find("OVREyeGaze");
+            if (ovrEyeGazeGo == null)
+            {
+                var eyeGazePrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.interaction.ovr/Runtime/Prefabs/OVREyeGaze.prefab");
+                if (eyeGazePrefab != null)
+                {
+                    ovrEyeGazeGo = (GameObject)PrefabUtility.InstantiatePrefab(eyeGazePrefab, eyeGazeParent);
+                    ovrEyeGazeGo.name = "OVREyeGaze";
+                    Debug.Log("[P0_Configurator] Instantiated OVREyeGaze Interaction SDK prefab.");
+                }
+            }
+
+            EyeGaze eyeGaze = null;
+            GazeConecaster gazeConecaster = null;
+
+            if (ovrEyeGazeGo != null)
+            {
+                eyeGaze = ovrEyeGazeGo.GetComponentInChildren<EyeGaze>(true);
+
+                // Wire FromOVREyeGazeDataSource
+                var dataSource = ovrEyeGazeGo.GetComponentInChildren<FromOVREyeGazeDataSource>(true);
+                if (dataSource != null)
+                {
+                    var centerCam = centerEye != null ? centerEye.GetComponent<Camera>() : Camera.main;
+                    var rigRef = interactionRigGo != null ? interactionRigGo.GetComponentInChildren<OVRCameraRigRef>(true) : GameObject.FindFirstObjectByType<OVRCameraRigRef>();
+
+                    var soData = new SerializedObject(dataSource);
+                    var camProp = soData.FindProperty("_centerEyeCamera");
+                    if (camProp != null && centerCam != null) camProp.objectReferenceValue = centerCam;
+                    var rigRefProp = soData.FindProperty("_cameraRigRef");
+                    if (rigRefProp != null && rigRef != null) rigRefProp.objectReferenceValue = rigRef;
+                    soData.ApplyModifiedProperties();
+                }
+
+                // Ensure child GazeConecaster exists
+                gazeConecaster = ovrEyeGazeGo.GetComponentInChildren<GazeConecaster>(true);
+                if (gazeConecaster == null && eyeGaze != null)
+                {
+                    var coneGo = new GameObject("GazeConecaster");
+                    coneGo.transform.SetParent(eyeGaze.transform, false);
+                    gazeConecaster = coneGo.AddComponent<GazeConecaster>();
+                    Debug.Log("[P0_Configurator] Added GazeConecaster child under EyeGaze.");
+                }
+
+                if (gazeConecaster != null && eyeGaze != null)
+                {
+                    gazeConecaster.InjectGaze(eyeGaze);
+                    gazeConecaster.DwellTimespanSeconds = 0.05f;
+                    var soCone = new SerializedObject(gazeConecaster);
+                    var gazeProp = soCone.FindProperty("_gaze");
+                    if (gazeProp != null) gazeProp.objectReferenceValue = eyeGaze;
+                    soCone.ApplyModifiedProperties();
+                }
+            }
+
+            // 5. Wire HandGazeInteractor on Left and Right hands in Interaction Rig
+            if (interactionRigGo != null)
+            {
+                var handGazePrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.meta.xr.sdk.interaction/Runtime/Prefabs/Gaze/HandGazeInteractor.prefab");
+
+                // Find left and right hand interactors holders
+                Transform leftHolder = null;
+                Transform rightHolder = null;
+                foreach (var t in interactionRigGo.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t.name == "HandInteractorsLeft") leftHolder = t;
+                    else if (t.name == "HandInteractorsRight") rightHolder = t;
+                }
+
+                // Find left and right Hand components without calling runtime hand.Handedness getter
+                Oculus.Interaction.Input.Hand leftHandComp = null;
+                Oculus.Interaction.Input.Hand rightHandComp = null;
+
+                // Try finding from existing HandRef on holders first
+                if (leftHolder != null)
+                {
+                    var existingHandRef = leftHolder.GetComponentInChildren<HandRef>(true);
+                    if (existingHandRef != null)
+                    {
+                        var soRef = new SerializedObject(existingHandRef);
+                        leftHandComp = soRef.FindProperty("_hand")?.objectReferenceValue as Oculus.Interaction.Input.Hand;
+                    }
+                }
+                if (rightHolder != null)
+                {
+                    var existingHandRef = rightHolder.GetComponentInChildren<HandRef>(true);
+                    if (existingHandRef != null)
+                    {
+                        var soRef = new SerializedObject(existingHandRef);
+                        rightHandComp = soRef.FindProperty("_hand")?.objectReferenceValue as Oculus.Interaction.Input.Hand;
+                    }
+                }
+
+                // Fallback to searching Hands by GameObject hierarchy name
+                if (leftHandComp == null || rightHandComp == null)
+                {
+                    var allHands = interactionRigGo.GetComponentsInChildren<Oculus.Interaction.Input.Hand>(true);
+                    foreach (var h in allHands)
+                    {
+                        string n = h.gameObject.name.ToLower();
+                        string pn = h.transform.parent != null ? h.transform.parent.name.ToLower() : "";
+                        if (leftHandComp == null && (n.Contains("left") || pn.Contains("left")))
+                        {
+                            leftHandComp = h;
+                        }
+                        else if (rightHandComp == null && (n.Contains("right") || pn.Contains("right")))
+                        {
+                            rightHandComp = h;
+                        }
+                    }
+                }
+
+                var sideSetups = new[]
+                {
+                    (holder: leftHolder, hand: leftHandComp, side: "Left"),
+                    (holder: rightHolder, hand: rightHandComp, side: "Right")
+                };
+
+                foreach (var (holder, hand, side) in sideSetups)
+                {
+                    if (holder != null && handGazePrefab != null)
+                    {
+                        Transform existingGaze = holder.Find("HandGazeInteractor");
+                        GameObject handGazeGo = existingGaze != null ? existingGaze.gameObject : null;
+                        if (handGazeGo == null)
+                        {
+                            handGazeGo = (GameObject)PrefabUtility.InstantiatePrefab(handGazePrefab, holder);
+                            handGazeGo.name = "HandGazeInteractor";
+                            Debug.Log($"[P0_Configurator] Instantiated HandGazeInteractor under {holder.name}.");
+                        }
+
+                        // Wire HandRef
+                        var handRef = handGazeGo.GetComponent<HandRef>();
+                        if (handRef != null && hand != null)
+                        {
+                            handRef.InjectHand(hand);
+                            var so = new SerializedObject(handRef);
+                            var p = so.FindProperty("_hand");
+                            if (p != null) p.objectReferenceValue = hand;
+                            so.ApplyModifiedProperties();
+                        }
+
+                        // Wire EyeGazeRef
+                        var eyeGazeRef = handGazeGo.GetComponent<EyeGazeRef>();
+                        if (eyeGazeRef != null && eyeGaze != null)
+                        {
+                            eyeGazeRef.InjectAllEyeGazeRef(eyeGaze);
+                            var so = new SerializedObject(eyeGazeRef);
+                            var p = so.FindProperty("_gaze");
+                            if (p != null) p.objectReferenceValue = eyeGaze;
+                            so.ApplyModifiedProperties();
+                        }
+
+                        // Wire GazeInteractor
+                        var gazeInteractor = handGazeGo.GetComponent<GazeInteractor>();
+                        if (gazeInteractor != null && gazeConecaster != null)
+                        {
+                            gazeInteractor.InjectHitTester(gazeConecaster);
+                            var so = new SerializedObject(gazeInteractor);
+                            var p = so.FindProperty("_candidateProvider");
+                            if (p != null) p.objectReferenceValue = gazeConecaster;
+                            so.ApplyModifiedProperties();
+                        }
+
+                        // Register GazeInteractor into InteractorGroup
+                        var group = holder.GetComponent<InteractorGroup>() ?? holder.GetComponentInParent<InteractorGroup>();
+                        if (group != null && gazeInteractor != null)
+                        {
+                            var field = typeof(InteractorGroup).GetField("_interactors", BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (field != null)
+                            {
+                                var list = field.GetValue(group) as List<UnityEngine.Object> ?? new List<UnityEngine.Object>();
+                                if (!list.Contains(gazeInteractor))
+                                {
+                                    list.Add(gazeInteractor);
+                                    field.SetValue(group, list);
+                                    EditorUtility.SetDirty(group);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. Ensure Interaction Target exists at comfortable FOV (0, 1.2, 1.0) with Interaction SDK components
             var targetGo = GameObject.Find("P0_InteractionTarget");
             if (targetGo == null)
             {
@@ -361,29 +569,71 @@ namespace Toss.Editor
             targetGo.transform.position = new Vector3(0, 1.2f, 1.0f);
             targetGo.transform.localScale = new Vector3(0.15f, 0.15f, 0.15f);
 
-            var tester = targetGo.GetComponent<LookPinchTester>();
-            if (tester == null)
+            var sphereCollider = targetGo.GetComponent<SphereCollider>() ?? targetGo.AddComponent<SphereCollider>();
+
+            // ColliderSurface
+            var colliderSurface = targetGo.GetComponent<ColliderSurface>() ?? targetGo.AddComponent<ColliderSurface>();
+            colliderSurface.InjectCollider(sphereCollider);
+            var soColSurf = new SerializedObject(colliderSurface);
+            var colProp = soColSurf.FindProperty("_collider");
+            if (colProp != null) colProp.objectReferenceValue = sphereCollider;
+            soColSurf.ApplyModifiedProperties();
+
+            // GazeInteractable
+            var gazeInteractable = targetGo.GetComponent<GazeInteractable>() ?? targetGo.AddComponent<GazeInteractable>();
+            gazeInteractable.InjectSurface(colliderSurface);
+            var soGazeInt = new SerializedObject(gazeInteractable);
+            var surfProp = soGazeInt.FindProperty("_surface");
+            if (surfProp != null) surfProp.objectReferenceValue = colliderSurface;
+            soGazeInt.ApplyModifiedProperties();
+
+            // RayInteractable Fallback with ISDK_Gaze_Fallback tag
+            var rayInteractable = targetGo.GetComponent<RayInteractable>() ?? targetGo.AddComponent<RayInteractable>();
+            rayInteractable.InjectSurface(colliderSurface);
+            var soRayInt = new SerializedObject(rayInteractable);
+            var raySurfProp = soRayInt.FindProperty("_surface");
+            if (raySurfProp != null) raySurfProp.objectReferenceValue = colliderSurface;
+            soRayInt.ApplyModifiedProperties();
+
+            var tagSet = targetGo.GetComponent<TagSet>() ?? targetGo.AddComponent<TagSet>();
+            var soTagSet = new SerializedObject(tagSet);
+            var tagsProp = soTagSet.FindProperty("_tags");
+            bool hasFallbackTag = false;
+            if (tagsProp != null)
             {
-                tester = targetGo.AddComponent<LookPinchTester>();
+                for (int i = 0; i < tagsProp.arraySize; i++)
+                {
+                    if (tagsProp.GetArrayElementAtIndex(i).stringValue == "ISDK_Gaze_Fallback")
+                    {
+                        hasFallbackTag = true;
+                        break;
+                    }
+                }
+                if (!hasFallbackTag)
+                {
+                    tagsProp.InsertArrayElementAtIndex(tagsProp.arraySize);
+                    tagsProp.GetArrayElementAtIndex(tagsProp.arraySize - 1).stringValue = "ISDK_Gaze_Fallback";
+                    soTagSet.ApplyModifiedProperties();
+                }
             }
 
-            // Ensure Diagnostics object exists
+            // LookPinchTester
+            var tester = targetGo.GetComponent<LookPinchTester>() ?? targetGo.AddComponent<LookPinchTester>();
+            tester.SubscribeToEvents();
+
+            // 7. Ensure Diagnostics object exists
             var diagGo = GameObject.Find("P0_Diagnostics");
             if (diagGo == null)
             {
                 diagGo = new GameObject("P0_Diagnostics");
             }
-            var diag = diagGo.GetComponent<DeviceReadinessCheck>();
-            if (diag == null)
-            {
-                diag = diagGo.AddComponent<DeviceReadinessCheck>();
-            }
+            var diag = diagGo.GetComponent<DeviceReadinessCheck>() ?? diagGo.AddComponent<DeviceReadinessCheck>();
 
             Physics.SyncTransforms();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
-            Debug.Log($"[P0_Configurator] Validation scene saved: {scenePath}");
+            Debug.Log($"[P0_Configurator] Official Interaction SDK validation scene saved: {scenePath}");
         }
 
         [MenuItem("Toss/P0 Audit Project and Runtime Evidence")]
@@ -436,7 +686,7 @@ namespace Toss.Editor
                 evidence.gazeTransitionsCount = tester.gazeEnterCount;
 
                 evidence.pinchSource = tester.ActivePinchSource;
-                evidence.handTracked = (tester.ActivePinchSource.Contains("OVRHand") || tester.ActivePinchSource.Contains("Hand"));
+                evidence.handTracked = (tester.ActivePinchSource.Contains("Hand") || tester.ActivePinchSource.Contains("OVRHand"));
                 evidence.pinchObserved = (tester.pinchStartCount > 0 || tester.IsPinched);
                 evidence.pinchTransitionsCount = tester.pinchStartCount;
 
@@ -503,74 +753,78 @@ namespace Toss.Editor
                     var getTasksMethod = setupType.GetMethod("GetTasks", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(BuildTargetGroup) }, null);
                     if (getTasksMethod != null)
                     {
-                        var tasks = getTasksMethod.Invoke(null, new object[] { BuildTargetGroup.Android }) as IEnumerable;
-                        if (tasks != null)
+                        var targets = new[] { BuildTargetGroup.Android, BuildTargetGroup.Standalone };
+                        foreach (var target in targets)
                         {
-                            foreach (var task in tasks)
+                            var tasks = getTasksMethod.Invoke(null, new object[] { target }) as IEnumerable;
+                            if (tasks != null)
                             {
-                                var validProp = task.GetType().GetProperty("Valid");
-                                object validObj = validProp?.GetValue(task);
-                                if (validObj != null)
+                                foreach (var task in tasks)
                                 {
-                                    var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                    bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { BuildTargetGroup.Android }) ?? true);
-                                    if (!isValid) continue;
-                                }
-
-                                var isDoneProp = task.GetType().GetProperty("IsDone");
-                                bool isDone = false;
-                                if (isDoneProp != null)
-                                {
-                                    var isDoneDelegate = isDoneProp.GetValue(task) as Delegate;
-                                    if (isDoneDelegate != null)
+                                    var validProp = task.GetType().GetProperty("Valid");
+                                    object validObj = validProp?.GetValue(task);
+                                    if (validObj != null)
                                     {
-                                        try
+                                        var getValidMethod = validObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                        bool isValid = (bool)(getValidMethod?.Invoke(validObj, new object[] { target }) ?? true);
+                                        if (!isValid) continue;
+                                    }
+
+                                    var isDoneProp = task.GetType().GetProperty("IsDone");
+                                    bool isDone = false;
+                                    if (isDoneProp != null)
+                                    {
+                                        var isDoneDelegate = isDoneProp.GetValue(task) as Delegate;
+                                        if (isDoneDelegate != null)
                                         {
-                                            isDone = (bool)isDoneDelegate.DynamicInvoke(BuildTargetGroup.Android);
+                                            try
+                                            {
+                                                isDone = (bool)isDoneDelegate.DynamicInvoke(target);
+                                            }
+                                            catch
+                                            {
+                                                isDone = false;
+                                            }
                                         }
-                                        catch
+                                    }
+
+                                    if (!isDone)
+                                    {
+                                        var levelProp = task.GetType().GetProperty("Level");
+                                        var messageProp = task.GetType().GetProperty("Message");
+
+                                        object levelObj = levelProp?.GetValue(task);
+                                        object msgObj = messageProp?.GetValue(task);
+
+                                        string levelStr = "";
+                                        if (levelObj != null)
                                         {
-                                            isDone = false;
+                                            var getValMethod = levelObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                            levelStr = getValMethod?.Invoke(levelObj, new object[] { target })?.ToString() ?? levelObj.ToString();
                                         }
-                                    }
-                                }
 
-                                if (!isDone)
-                                {
-                                    var levelProp = task.GetType().GetProperty("Level");
-                                    var messageProp = task.GetType().GetProperty("Message");
+                                        string msgStr = "";
+                                        if (msgObj != null)
+                                        {
+                                            var getValMethod = msgObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
+                                            msgStr = getValMethod?.Invoke(msgObj, new object[] { target })?.ToString() ?? msgObj.ToString();
+                                        }
 
-                                    object levelObj = levelProp?.GetValue(task);
-                                    object msgObj = messageProp?.GetValue(task);
-
-                                    string levelStr = "";
-                                    if (levelObj != null)
-                                    {
-                                        var getValMethod = levelObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                        levelStr = getValMethod?.Invoke(levelObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? levelObj.ToString();
-                                    }
-
-                                    string msgStr = "";
-                                    if (msgObj != null)
-                                    {
-                                        var getValMethod = msgObj.GetType().GetMethod("GetValue", new[] { typeof(BuildTargetGroup) });
-                                        msgStr = getValMethod?.Invoke(msgObj, new object[] { BuildTargetGroup.Android })?.ToString() ?? msgObj.ToString();
-                                    }
-
-                                    if (levelStr.Equals("Required", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        evidence.criticalCount++;
-                                        evidence.readinessCritical.Add(msgStr);
-                                    }
-                                    else if (levelStr.Equals("Recommended", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        evidence.recommendationCount++;
-                                        evidence.readinessRecommendations.Add(msgStr);
-                                    }
-                                    else
-                                    {
-                                        evidence.warningCount++;
-                                        evidence.readinessWarnings.Add(msgStr);
+                                        if (levelStr.Equals("Required", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            evidence.criticalCount++;
+                                            evidence.readinessCritical.Add($"[{target}] {msgStr}");
+                                        }
+                                        else if (levelStr.Equals("Recommended", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            evidence.recommendationCount++;
+                                            evidence.readinessRecommendations.Add($"[{target}] {msgStr}");
+                                        }
+                                        else
+                                        {
+                                            evidence.warningCount++;
+                                            evidence.readinessWarnings.Add($"[{target}] {msgStr}");
+                                        }
                                     }
                                 }
                             }
