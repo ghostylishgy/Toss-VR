@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.16 ｜ 更新日期：2026-09-26 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.17 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.17 更新（2026-09-27，P0 Rig 根因修复候选）：① 真实 NullReference 根因已定位为 `OVRComprehensiveInteractionRig` 的 `OVRCameraRigRef._ovrCameraRig/_leftHand/_rightHand` 等序列化引用缺失，导致 `TrackingToWorldTransformerOVR.get_Transform()` 在 hand interaction 预处理时解引用 null；② 提交 `17b20a1` 补齐 CameraRig/Hand/Gaze/Tracking 引用，并移除 P0 无关 TouchHandGrab/Grab/Poke/Locomotion/Controller 交互器；③ 静态/批处理审计为 0 compile / 0 NullReference / 0 MissingReference；④ 该实现虽然对齐官方 prefab/sample，但仍包含 `PrefabUtility + SerializedObject` 手工 wiring，因此不等同于“纯 Quick Action、零手工装配”；⑤ 当前状态仍为 **P0 = NOT PASS**，等待 Unity Editor + Meta XR Simulator 的真实 GUI Look-and-Pinch 复测。
 >
 > v0.16 更新（2026-09-26，真实 GUI 验证暴露输入架构错误）：① Unity Editor 已真实进入 Play Mode，Meta XR Simulator v207 已连接，Device=Meta VR Glasses，Left/Right input=Look and Pinch，Stop→Play 重入也已完成；② 在官方 Look and Pinch 模式下移动鼠标 gaze、左键 pinch，P0_InteractionTarget 完全无响应；③ 这否定了 v0.15 中“`OVREyeGaze` + `OVRHand` 验证架构可接受”的判断；④ Meta v207 官方说明 Look and Pinch 通过 OpenXR eye-gaze + `/interaction_profiles/ext/hand_interaction_ext` 提供输入，应用必须自行实现 gaze/hand interaction；v207 新增的 Interaction SDK Gaze Interaction 是当前标准路线；⑤ P0 验证改为 Interaction SDK Gaze Interaction / 官方 GazeExamples 路线，`OVREyeGaze` 不再作为 VR Glasses Look-and-Pinch 的 P0 主验证路径；⑥ 输入验证阶段允许不加载 Synthetic Environment，避免 `synth_env_server` 在本机异常占用约 17GB RAM。
 >
@@ -472,84 +474,72 @@ Competition Build 必须建立一组**可调参数**，至少包括：
 | D-021 | 2026-09-26 | `910f898` 的 synthetic evidence 清理被接受，但其 `OVREyeGaze` + `OVRHand` 输入架构经真实 GUI 验证失败；该架构不再视为 P0 合格实现 | Superseded |
 | D-022 | 2026-09-26 | P0 的 VR Glasses Look-and-Pinch 验证改用 **Meta XR Interaction SDK v207 Gaze Interaction**（或官方 GazeExamples 等价标准路径），不再以 `OVREyeGaze` 作为主 gaze 路径 | Active |
 | D-023 | 2026-09-26 | P0 输入验证不要求 Synthetic Environment；在本机 `synth_env_server` 异常占用约 17GB RAM 时保持其关闭，仅在后续确需 passthrough/Scene/Anchors/Depth 联调时再启用 | Active |
+| D-024 | 2026-09-27 | `17b20a1` 被接受为 P0 Rig 修复候选：根因是 `OVRCameraRigRef`/tracking 引用缺失；修复后静态审计清零，但仍需真实 GUI 输入复测后才能判 PASS | Active |
+| D-025 | 2026-09-27 | 项目不得把“使用官方 prefab/sample + 手工 SerializedObject wiring”描述为“纯官方 Quick Action / 无手工装配”；文档与报告必须区分二者 | Active |
 
 ---
 
 ## 12. 当前下一步
 
-**当前阶段：P0 Environment — Interaction SDK Gaze Path Repair。**
+**当前阶段：P0 Environment — GUI Re-test After Rig Reference Repair。**
 
-### 12.1 已真实验证的环境事实
+### 12.1 当前已确认修复
 
-- Unity Editor 可进入真实 Play Mode。
-- Meta XR Simulator v207 可作为 OpenXR runtime 连接当前 Unity session。
-- Device = **Meta VR Glasses**。
-- Simulator 的 Left / Right input 可切到官方 **Look and Pinch**。
-- Stop → Play 重入已实际执行。
-- Standalone 与 Android 的 Meta Project Setup **Required = 0**。
-- 输入验证不加载 Synthetic Environment 时 Simulator 可流畅运行；`synth_env_server` 在本机加载后出现约 17GB RAM 异常占用，因此 P0 保持关闭。
+提交 `17b20a1` 已完成以下修复候选：
 
-### 12.2 当前真实 blocker
+- `OVRCameraRigRef._ovrCameraRig` → 场景 `OVRCameraRig`。
+- `OVRCameraRigRef._leftHand/_rightHand` → 对应 OVR hand data source。
+- `TrackingToWorldTransformerOVR._cameraRigRef` → 有效 CameraRigRef。
+- Interaction SDK EyeGaze / GazeConecaster / HandGazeInteractor / IndexPinchSelector 的关键 serialized reference 已断言 non-null。
+- P0 无关的 TouchHandGrab / HandGrab / Poke / Locomotion / Controller interactors 已禁用或从 InteractorGroup 移除。
+- 单一 XR camera / 单一 AudioListener。
+- batchmode/static audit：0 compile errors、0 NullReferenceException、0 MissingReferenceException。
 
-在以下真实条件全部成立时：
+### 12.2 实现边界
+
+该提交使用 Meta 官方 prefab / sample 作为结构依据，但仍通过 `PrefabUtility` 与 `SerializedObject` 对若干官方组件进行手工 wiring。
+
+因此当前实现应描述为：
 
 ```text
-Unity Play Mode
-+ Meta XR Simulator connected
-+ Meta VR Glasses profile
-+ Look and Pinch enabled
-+ mouse gaze / left-click pinch
+official-prefab/sample-aligned + explicit audited wiring
 ```
 
-`P0_InteractionTarget` 仍完全无响应。
+不得描述为：
 
-因此当前结论：
+```text
+pure official Quick Action / no manual assembly
+```
+
+### 12.3 当前状态
 
 ```text
 P0 = NOT PASS
 ```
 
-根因方向已明确：P0 当前使用的 `OVREyeGaze` 路线不等于 v207 VR Glasses 的标准 Gaze Interaction 路线。Meta v207 的 Look and Pinch 通过 OpenXR gaze 与 hand-interaction profile 更新输入状态，应用必须使用兼容的 interaction stack 消费这些状态。
+理由：尚未在修复后的 `17b20a1` 上完成真实 GUI input 验证。
 
-### 12.3 下一步修复原则
+### 12.4 下一步 GUI 复测
 
-Gemini 只修 P0 interaction validation：
+侃哥只执行：
 
-- 优先采用 **Meta XR Interaction SDK v207 Gaze Interaction Building Block** 的标准架构。
-- 可使用官方 **GazeExamples** 场景先做 known-good baseline，再将同一标准交互路径落到 `P0_InteractionTarget`。
-- 目标架构应包含 Interaction SDK 的 gaze stack（`EyeGaze` / `GazeConecaster` / `GazeInteractor` / `GazeInteractable` 或 v207 实际等价组件），而不是 Movement SDK 的 `OVREyeGaze` 自定义 raycast。
-- Pinch PASS 应由 Interaction SDK / OpenXR hand-interaction select event 触发；`OVRHand` 可保留为诊断，但不得作为绕过标准 interaction stack 的替代。
-- 不允许应用层 Mouse/Keyboard fallback。
-- 不允许 forced bool / synthetic event。
-- 不要求 Synthetic Environment；不要启动或依赖 `synth_env_server`。
-- 如果官方 Building Block 增加 Camera Rig / Interactions Rig，应清理重复 Main Camera / Audio Listener，保持单一 XR rig。
-- 保持 hands-only / controller-free 产品边界；已启用的 Oculus Touch Interaction Profile 只作为 OpenXR profile 支持，不得引入 controller dependency。
+1. 打开 `P0_EnvironmentValidation`。
+2. 启动 Meta XR Simulator v207，保持 Synthetic Environment OFF。
+3. Runtime Enabled；Device = Meta VR Glasses。
+4. Unity Play。
+5. 先看 Console：必须没有新的 NullReference / MissingReference / Interaction SDK initialization exception。
+6. Left/Right input = Look and Pinch。
+7. 鼠标 gaze 指向 `P0_InteractionTarget`：
+   - 预期：Gaze hover 反馈。
+8. 左键 pinch：
+   - 预期：Interaction SDK Select / Look-and-Pinch 反馈。
+9. Stop → Play 再测试一次。
 
-### 12.4 P0 最终 PASS 证据
+若第 5 步仍有异常，立即停止输入测试并保存完整 stack trace。
 
-修复后再次由侃哥在 GUI 中真实执行：
+若第 5 步无异常但第 7/8 步仍无响应，则说明 Rig reference blocker 已解决，但 Gaze/Hand select 链仍有独立问题，继续保持 P0 NOT PASS 并重新定位。
 
-```text
-Meta VR Glasses
-→ Look and Pinch
-→ gaze target enter/exit
-→ index pinch
-→ Interaction SDK select/activate
-→ P0 target visible response
-```
-
-并满足：
-
-- gaze 来源 = Interaction SDK / OpenXR gaze，而非 Camera.forward / OVREyeGaze Movement path。
-- pinch 来源 = Interaction SDK / OpenXR hand-interaction。
-- Look-and-Pinch 由真实 Simulator input 触发。
-- Play → Exit → Play 后仍可复现。
-- Standalone Required = 0。
-- Android Required = 0。
-- Critical = 0。
-- Synthetic Environment 未加载不影响上述输入验证。
-
-只有这些全部成立，才允许：
+只有真实 gaze + pinch 都触发且重入稳定，才允许：
 
 ```text
 P0 = PASS
