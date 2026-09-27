@@ -239,6 +239,44 @@ namespace Toss.Editor
             return generalSettings;
         }
 
+        private static readonly HashSet<string> s_allowedOpenXRFeatureTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Core Meta XR & Quest Features
+            "MetaXRFeature",
+            "MetaQuestFeature",
+            "MetaXRFoveationFeature",
+            "MetaXRSubsampledLayout",
+            "MetaXREyeTrackedFoveationFeature",
+            "MetaXRSpaceWarp",
+
+            // Official Khronos EXT Interaction Profiles & Hand Tracking Subsystems
+            "HandInteractionProfile",           // XR_EXT_hand_interaction (/interaction_profiles/ext/hand_interaction_ext)
+            "EyeGazeInteraction",              // XR_EXT_eye_gaze_interaction (/interaction_profiles/ext/eye_gaze_interaction)
+            "HandTracking",                    // XR_EXT_hand_tracking
+            "HandCommonPosesInteraction",       // XR_EXT_hand_interaction poses
+
+            // Meta Hand / Controller Profiles
+            "MetaHandTrackingAim",             // XR_FB_hand_tracking_aim
+            "OculusTouchControllerProfile",    // Meta Project Setup Tool requirement
+            "OculusTouchControllerProximityProfile",
+
+            // OpenXR Subsystem & Tooling
+            "ApiLayersFeature"
+        };
+
+        private static readonly HashSet<string> s_blockedOpenXRFeatureTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "MicrosoftHandInteraction",         // XR_MSFT_hand_interaction (/interaction_profiles/microsoft/hand_interaction) - MUST BE DISABLED
+            "MicrosoftMotionControllerProfile", // Third-party profile
+            "HTCViveControllerProfile",         // Third-party profile
+            "ValveIndexControllerProfile",      // Third-party profile
+            "HPReverbG2ControllerProfile",      // Third-party profile
+            "AndroidMouseInteractionProfile",   // Third-party profile
+            "KHRSimpleControllerProfile",       // Fallback controller profile
+            "DPadInteraction",
+            "PalmPoseInteraction"
+        };
+
         private static void ConfigureBuildTargetXR(BuildTargetGroup group)
         {
             try
@@ -271,12 +309,33 @@ namespace Toss.Editor
                     foreach (var f in features)
                     {
                         if (f == null) continue;
-                        string fName = f.name;
-                        if (fName.Contains("MetaXR") || fName.Contains("Meta XR") ||
-                            fName.Contains("Hand") || fName.Contains("Eye") || fName.Contains("Aim"))
+                        string typeName = f.GetType().Name;
+                        string fullName = f.GetType().FullName ?? "";
+
+                        // Explicit Blocklist & Defense-in-depth:
+                        // Reject any Microsoft profiles or third-party controller profiles
+                        bool isExplicitlyBlocked = s_blockedOpenXRFeatureTypes.Contains(typeName) ||
+                                                   typeName.Contains("Microsoft") ||
+                                                   fullName.Contains("Microsoft");
+
+                        // Explicit Allowlist:
+                        // Only enable features that belong to Meta XR or official Khronos EXT Look-and-Pinch pipeline
+                        bool isExplicitlyAllowed = !isExplicitlyBlocked && s_allowedOpenXRFeatureTypes.Contains(typeName);
+
+                        if (isExplicitlyBlocked)
+                        {
+                            f.enabled = false;
+                            Debug.Log($"[P0_Configurator] OpenXR Feature EXPLICITLY BLOCKED ({group}): {typeName} ({f.name})");
+                        }
+                        else if (isExplicitlyAllowed)
                         {
                             f.enabled = true;
-                            Debug.Log($"[P0_Configurator] Enabled OpenXR Feature for {group}: {fName}");
+                            Debug.Log($"[P0_Configurator] OpenXR Feature ENABLED ({group}): {typeName} ({f.name})");
+                        }
+                        else
+                        {
+                            f.enabled = false;
+                            Debug.Log($"[P0_Configurator] OpenXR Feature DISABLED (Not in allowlist) ({group}): {typeName} ({f.name})");
                         }
                     }
                     EditorUtility.SetDirty(openXRSettings);
