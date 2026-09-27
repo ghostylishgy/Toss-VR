@@ -5,148 +5,316 @@ namespace Toss.Coin
 {
     public static class CoinTextureGenerator
     {
-        private static readonly Vector2[] HeadsPolygon = new Vector2[]
+        // === HEADS: Iconic Classical Greco-Roman Profile (Pointing Left) ===
+        private static readonly Vector2[] HeadsProfile = new Vector2[]
         {
-            new Vector2(-0.06f,  0.48f), // Crown top
-            new Vector2(-0.18f,  0.40f), // Forehead top
-            new Vector2(-0.28f,  0.28f), // Brow ridge
-            new Vector2(-0.26f,  0.21f), // Nose bridge dip (nasion)
-            new Vector2(-0.40f,  0.08f), // Nose tip (pointing LEFT)
-            new Vector2(-0.31f,  0.03f), // Nose base
-            new Vector2(-0.34f, -0.04f), // Upper lip
-            new Vector2(-0.27f, -0.07f), // Mouth slit
-            new Vector2(-0.32f, -0.12f), // Lower lip
-            new Vector2(-0.26f, -0.16f), // Mentolabial groove
-            new Vector2(-0.33f, -0.24f), // Chin tip
-            new Vector2(-0.29f, -0.31f), // Under chin
-            new Vector2(-0.16f, -0.36f), // Throat
-            new Vector2(-0.14f, -0.52f), // Front neck base
-            new Vector2( 0.16f, -0.52f), // Truncated neck base bottom
-            new Vector2( 0.26f, -0.36f), // Back neck / nape
-            new Vector2( 0.35f, -0.18f), // Lower hair bun / occiput
-            new Vector2( 0.38f,  0.04f), // Back of head
-            new Vector2( 0.32f,  0.26f), // Upper rear crown
-            new Vector2( 0.18f,  0.42f), // Top crown rear
-            new Vector2( 0.06f,  0.48f)  // Crown apex
+            new Vector2( 0.04f,  0.55f), // Top crown apex
+            new Vector2(-0.10f,  0.52f),
+            new Vector2(-0.20f,  0.44f), // Hairline apex
+            new Vector2(-0.26f,  0.34f), // Forehead
+            new Vector2(-0.31f,  0.22f), // Brow ridge
+            new Vector2(-0.28f,  0.17f), // Nasion indentation
+            new Vector2(-0.35f,  0.08f), // Upper nose bridge
+            new Vector2(-0.46f, -0.02f), // Sharp classical nose tip (pointing left)
+            new Vector2(-0.36f, -0.05f), // Nostril / columella
+            new Vector2(-0.35f, -0.10f), // Upper lip crest
+            new Vector2(-0.40f, -0.12f), // Upper lip pout
+            new Vector2(-0.33f, -0.14f), // Mouth fissure indent
+            new Vector2(-0.38f, -0.17f), // Lower lip pout
+            new Vector2(-0.31f, -0.20f), // Mentolabial fold indent
+            new Vector2(-0.39f, -0.28f), // Chin apex (strong classical chin)
+            new Vector2(-0.34f, -0.36f), // Chin under-curve
+            new Vector2(-0.24f, -0.38f), // Submandibular line
+            new Vector2(-0.18f, -0.42f), // Throat curve
+            new Vector2(-0.18f, -0.52f), // Front neck
+            new Vector2(-0.24f, -0.62f), // Front bust truncation corner
+            new Vector2(-0.10f, -0.66f), // Classical curved truncation bottom
+            new Vector2( 0.08f, -0.65f),
+            new Vector2( 0.24f, -0.58f), // Rear truncation corner
+            new Vector2( 0.22f, -0.40f), // Back neck
+            new Vector2( 0.26f, -0.26f), // Nape
+            new Vector2( 0.38f, -0.18f), // Chignon bun lower contour
+            new Vector2( 0.46f, -0.06f), // Bun rear apex
+            new Vector2( 0.44f,  0.08f), // Bun upper contour
+            new Vector2( 0.36f,  0.20f), // Bun crown junction
+            new Vector2( 0.30f,  0.34f), // Rear crown
+            new Vector2( 0.20f,  0.46f),
+            new Vector2( 0.12f,  0.52f)
         };
 
+        private static readonly Vector2[] HeadsHair = new Vector2[]
+        {
+            new Vector2(-0.20f,  0.44f),
+            new Vector2(-0.10f,  0.52f),
+            new Vector2( 0.04f,  0.55f),
+            new Vector2( 0.12f,  0.52f),
+            new Vector2( 0.20f,  0.46f),
+            new Vector2( 0.30f,  0.34f),
+            new Vector2( 0.36f,  0.20f),
+            new Vector2( 0.44f,  0.08f),
+            new Vector2( 0.46f, -0.06f),
+            new Vector2( 0.38f, -0.18f),
+            new Vector2( 0.26f, -0.26f),
+            new Vector2( 0.14f, -0.16f),
+            new Vector2( 0.02f, -0.02f),
+            new Vector2(-0.06f,  0.16f),
+            new Vector2(-0.14f,  0.32f)
+        };
+
+        // === TAILS: Symmetrical Heraldic Spread-Wing Eagle ===
         private static readonly Vector2[] EagleHalf = new Vector2[]
         {
-            new Vector2( 0.00f,  0.44f), // Crest tip
-            new Vector2(-0.06f,  0.39f), // Crown curve
-            new Vector2(-0.12f,  0.33f), // Beak top
-            new Vector2(-0.19f,  0.30f), // Beak tip (sharp eagle beak pointing left)
-            new Vector2(-0.11f,  0.25f), // Under beak
-            new Vector2(-0.08f,  0.20f), // Throat to breast
-            new Vector2(-0.20f,  0.26f), // Wing shoulder arch
-            new Vector2(-0.42f,  0.40f), // Primary feather tip 1
-            new Vector2(-0.38f,  0.28f), // Notch 1
-            new Vector2(-0.48f,  0.25f), // Primary feather tip 2
-            new Vector2(-0.40f,  0.15f), // Notch 2
-            new Vector2(-0.44f,  0.08f), // Primary feather tip 3
-            new Vector2(-0.34f, -0.01f), // Lower wing curve
-            new Vector2(-0.22f, -0.08f), // Wing inner joint
-            new Vector2(-0.16f, -0.18f), // Talon / leg anchor
-            new Vector2(-0.22f, -0.30f), // Outer tail feather
-            new Vector2(-0.12f, -0.26f), // Tail notch
-            new Vector2(-0.10f, -0.42f), // Center tail feather edge
-            new Vector2( 0.00f, -0.45f)  // Central tail apex
+            new Vector2(0.00f,  0.16f), // Neck / chest top
+            new Vector2(0.10f,  0.20f), // Shoulder inner
+            new Vector2(0.24f,  0.28f), // Wing arch root
+            new Vector2(0.42f,  0.38f), // Wing curve upward
+            new Vector2(0.60f,  0.46f), // Primary Feather 1 Arch
+            new Vector2(0.76f,  0.46f), // Primary Feather 1 Tip (sweeping up & out)
+            new Vector2(0.68f,  0.36f), // Notch 1
+            new Vector2(0.80f,  0.30f), // Primary Feather 2 Tip (broad horizontal reach)
+            new Vector2(0.68f,  0.22f), // Notch 2
+            new Vector2(0.74f,  0.12f), // Primary Feather 3 Tip
+            new Vector2(0.62f,  0.06f), // Notch 3
+            new Vector2(0.66f, -0.02f), // Feather 4 Tip
+            new Vector2(0.54f, -0.06f), // Notch 4
+            new Vector2(0.56f, -0.12f), // Feather 5 Tip
+            new Vector2(0.42f, -0.16f), // Lower wing border
+            new Vector2(0.28f, -0.18f), // Flank / leg joint
+            new Vector2(0.26f, -0.32f), // Tail outer feather tip
+            new Vector2(0.18f, -0.36f), // Tail notch 1
+            new Vector2(0.14f, -0.46f), // Tail feather 2 tip
+            new Vector2(0.08f, -0.44f), // Tail notch 2
+            new Vector2(0.00f, -0.52f)  // Central tail apex
+        };
+
+        private static readonly Vector2[] EagleHead = new Vector2[]
+        {
+            new Vector2( 0.04f,  0.16f), // Neck right
+            new Vector2( 0.08f,  0.26f), // Nape
+            new Vector2( 0.06f,  0.36f), // Rear crest
+            new Vector2( 0.00f,  0.42f), // Crest top
+            new Vector2(-0.10f,  0.42f), // Crown
+            new Vector2(-0.18f,  0.36f), // Brow overhang
+            new Vector2(-0.28f,  0.30f), // Upper beak ridge
+            new Vector2(-0.32f,  0.23f), // Hooked beak sharp downward tip
+            new Vector2(-0.25f,  0.23f), // Under-hook
+            new Vector2(-0.18f,  0.25f), // Gape / mouth slit
+            new Vector2(-0.12f,  0.18f), // Throat to breast
+            new Vector2( 0.00f,  0.16f)
+        };
+
+        private static readonly Vector2[] ShieldHalf = new Vector2[]
+        {
+            new Vector2(0.00f,  0.14f),
+            new Vector2(0.16f,  0.14f),
+            new Vector2(0.16f, -0.04f),
+            new Vector2(0.10f, -0.18f),
+            new Vector2(0.00f, -0.28f)
+        };
+
+        private static readonly Vector2[] BranchHalf = new Vector2[]
+        {
+            new Vector2(0.00f, -0.20f),
+            new Vector2(0.14f, -0.20f),
+            new Vector2(0.28f, -0.22f),
+            new Vector2(0.40f, -0.28f),
+            new Vector2(0.44f, -0.32f),
+            new Vector2(0.38f, -0.33f),
+            new Vector2(0.24f, -0.27f),
+            new Vector2(0.12f, -0.25f),
+            new Vector2(0.00f, -0.25f)
         };
 
         public static void GenerateTextures(CoinVisualConfig config, out Texture2D normalMap, out Texture2D aoMap, int width = 1024, int height = 512)
         {
             if (config == null) config = new CoinVisualConfig();
 
-            float[,] heightField = new float[width, height];
             int halfW = width / 2;
 
-            // Generate Heightfield for Left (Heads) and Right (Tails)
+            // 1. Rasterize binary masks
+            float[,] maskHeads = new float[halfW, height];
+            float[,] maskHair = new float[halfW, height];
+
+            float[,] maskWings = new float[halfW, height];
+            float[,] maskHead = new float[halfW, height];
+            float[,] maskShield = new float[halfW, height];
+            float[,] maskBranch = new float[halfW, height];
+
             for (int y = 0; y < height; y++)
             {
                 float ny = (y - height * 0.5f) / (height * 0.5f); // [-1, 1]
 
-                for (int x = 0; x < width; x++)
+                for (int x = 0; x < halfW; x++)
                 {
-                    float nx;
-                    bool isTails = x >= halfW;
+                    float nx = (x - halfW * 0.5f) / (halfW * 0.5f); // [-1, 1]
+                    Vector2 p = new Vector2(nx, ny);
 
-                    if (!isTails)
-                    {
-                        // Heads tile: center at (width * 0.25, height * 0.5)
-                        nx = (x - halfW * 0.5f) / (halfW * 0.5f);
-                    }
-                    else
-                    {
-                        // Tails tile: center at (width * 0.75, height * 0.5)
-                        nx = (x - halfW * 1.5f) / (halfW * 0.5f);
-                    }
+                    // Heads masks
+                    if (PointInPolygon(p, HeadsProfile)) maskHeads[x, y] = 1.0f;
+                    if (PointInPolygon(p, HeadsHair)) maskHair[x, y] = 1.0f;
 
-                    float r = Mathf.Sqrt(nx * nx + ny * ny);
-                    float h = 0.05f; // Base basin height
-
-                    if (r <= 0.98f)
-                    {
-                        // 1. Concentric / Radial Brushed Mint Luster Grain
-                        float theta = Mathf.Atan2(ny, nx);
-                        float lathe = Mathf.Sin(r * 320.0f) * 0.015f;
-                        float radial = Mathf.Cos(theta * 96.0f) * 0.012f;
-                        float brushed = (lathe + radial) * (config.brushedGrainStrength / 0.025f);
-
-                        // 2. Beaded / Stepped Inner Rim at r ≈ 0.88 - 0.94
-                        float rimBead = 0.0f;
-                        if (r >= 0.84f && r <= 0.94f)
-                        {
-                            float rimDist = Mathf.Abs(r - 0.89f);
-                            rimBead = Mathf.Clamp01(1.0f - (rimDist / 0.05f)) * 0.15f;
-                        }
-
-                        // 3. Stylized Bas-Relief
-                        float relief = 0.0f;
-                        if (!isTails)
-                        {
-                            // Heads: Left-Facing Classical Profile
-                            Vector2 pt = new Vector2(nx, ny);
-                            if (PointInPolygon(pt, HeadsPolygon))
-                            {
-                                float distToEdge = DistanceToPolygon(pt, HeadsPolygon);
-                                float bevel = Mathf.Clamp01(distToEdge / 0.06f);
-                                relief = Mathf.Sin(bevel * (Mathf.PI * 0.5f)) * 0.50f;
-
-                                // Subtle hair wave ridge accent
-                                if (nx > -0.05f && ny > 0.0f)
-                                {
-                                    float hairWave = Mathf.Sin((nx * 4.0f + ny * 6.0f) * Mathf.PI) * 0.06f;
-                                    relief += Mathf.Max(0f, hairWave);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // Tails: Heraldic Eagle with Spread Wings (Symmetrical)
-                            Vector2 pt = new Vector2(Mathf.Abs(nx), ny); // Mirror X for symmetry
-                            if (PointInPolygon(pt, EagleHalf))
-                            {
-                                float distToEdge = DistanceToPolygon(pt, EagleHalf);
-                                float bevel = Mathf.Clamp01(distToEdge / 0.05f);
-                                relief = Mathf.Sin(bevel * (Mathf.PI * 0.5f)) * 0.48f;
-
-                                // Central heraldic chest shield emblem
-                                if (Mathf.Abs(nx) <= 0.11f && ny >= -0.15f && ny <= 0.18f)
-                                {
-                                    float shieldBevel = Mathf.Clamp01((0.11f - Mathf.Abs(nx)) / 0.03f);
-                                    relief += shieldBevel * 0.12f;
-                                }
-                            }
-                        }
-
-                        h = Mathf.Clamp01(h + rimBead + relief * (config.reliefStrength / 1.6f) + brushed);
-                    }
-
-                    heightField[x, y] = h;
+                    // Tails masks (mirrored on X for symmetry)
+                    Vector2 pSym = new Vector2(Mathf.Abs(nx), ny);
+                    if (PointInPolygon(pSym, EagleHalf)) maskWings[x, y] = 1.0f;
+                    if (PointInPolygon(p, EagleHead)) maskHead[x, y] = 1.0f;
+                    if (PointInPolygon(pSym, ShieldHalf)) maskShield[x, y] = 1.0f;
+                    if (PointInPolygon(pSym, BranchHalf)) maskBranch[x, y] = 1.0f;
                 }
             }
 
-            // Normal Map and Ambient Occlusion Output Textures
+            // 2. Multi-pass separable box-blur to produce smooth minted bas-relief bevels
+            float[,] blurHeads = BlurSeparable(maskHeads, halfW, height, 4);
+            blurHeads = BlurSeparable(blurHeads, halfW, height, 3);
+
+            float[,] blurHair = BlurSeparable(maskHair, halfW, height, 3);
+
+            float[,] blurWings = BlurSeparable(maskWings, halfW, height, 4);
+            blurWings = BlurSeparable(blurWings, halfW, height, 3);
+
+            float[,] blurHead = BlurSeparable(maskHead, halfW, height, 3);
+            float[,] blurShield = BlurSeparable(maskShield, halfW, height, 2);
+            float[,] blurBranch = BlurSeparable(maskBranch, halfW, height, 3);
+
+            // 3. Assemble Heightfield for the entire 1024x512 texture
+            float[,] heightField = new float[width, height];
+
+            for (int y = 0; y < height; y++)
+            {
+                float ny = (y - height * 0.5f) / (height * 0.5f);
+
+                for (int x = 0; x < width; x++)
+                {
+                    bool isTails = x >= halfW;
+                    int lx = isTails ? (x - halfW) : x;
+                    float nx = (lx - halfW * 0.5f) / (halfW * 0.5f);
+                    float r = Mathf.Sqrt(nx * nx + ny * ny);
+
+                    if (r > 0.98f)
+                    {
+                        heightField[x, y] = 0.0f;
+                        continue;
+                    }
+
+                    // Basin floor
+                    float h = 0.16f;
+
+                    // Raised stepped inner rim at r in [0.82, 0.88]
+                    if (r >= 0.82f && r <= 0.88f)
+                    {
+                        float rimDist = Mathf.Abs(r - 0.85f);
+                        float rimT = Mathf.Clamp01(1.0f - (rimDist / 0.03f));
+                        h += rimT * 0.22f;
+                    }
+
+                    // Subtle silky brushed texture (85% noise reduction)
+                    float theta = Mathf.Atan2(ny, nx);
+                    float brushScale = config.brushedGrainStrength / 0.025f;
+                    float subtleBrush = (Mathf.Sin(r * 24.0f) * 0.0015f + Mathf.Cos(theta * 16.0f) * 0.0015f) * brushScale;
+                    h += subtleBrush;
+
+                    if (!isTails)
+                    {
+                        // === HEADS ===
+                        float b = blurHeads[lx, y];
+                        if (b > 0.001f)
+                        {
+                            float relief = Mathf.Pow(b, 0.55f) * 0.58f;
+
+                            // Hair volume layer
+                            float hb = blurHair[lx, y];
+                            if (hb > 0.01f)
+                            {
+                                relief += Mathf.Pow(hb, 0.70f) * 0.12f;
+                                float waves = Mathf.Sin((nx * 5.0f - ny * 7.0f) * Mathf.PI) * 0.035f;
+                                relief += Mathf.Max(0.0f, waves) * hb;
+                            }
+                            else
+                            {
+                                // Cheek fullness
+                                float cheekD = Mathf.Sqrt((nx + 0.12f) * (nx + 0.12f) + (ny + 0.02f) * (ny + 0.02f));
+                                if (cheekD < 0.16f)
+                                {
+                                    relief += (1.0f - cheekD / 0.16f) * 0.05f;
+                                }
+                            }
+
+                            // Eye & Brow arch accent
+                            float eyeD = Mathf.Sqrt((nx + 0.16f) * (nx + 0.16f) + (ny - 0.18f) * (ny - 0.18f));
+                            if (eyeD < 0.04f)
+                            {
+                                relief += (1.0f - eyeD / 0.04f) * 0.05f;
+                            }
+
+                            h += relief * (config.reliefStrength / 1.6f);
+                        }
+                    }
+                    else
+                    {
+                        // === TAILS ===
+                        float relief = 0.0f;
+
+                        // Symmetrical Wings & Tail
+                        float wb = blurWings[lx, y];
+                        if (wb > 0.001f)
+                        {
+                            float wingRelief = Mathf.Pow(wb, 0.55f) * 0.52f;
+                            // Crisp primary feather separation grooves
+                            if (Mathf.Abs(nx) > 0.22f)
+                            {
+                                float featherGrooves = Mathf.Sin((ny * 13.0f + Mathf.Abs(nx) * 3.0f) * Mathf.PI);
+                                if (featherGrooves < -0.65f)
+                                {
+                                    wingRelief -= 0.08f;
+                                }
+                            }
+                            relief = Mathf.Max(relief, wingRelief);
+                        }
+
+                        // Laurel / Olive Branch Pedestal
+                        float bb = blurBranch[lx, y];
+                        if (bb > 0.001f)
+                        {
+                            float branchRelief = 0.35f + Mathf.Pow(bb, 0.60f) * 0.18f;
+                            relief = Mathf.Max(relief, branchRelief);
+                        }
+
+                        // Eagle Head (Hooked Beak, Turned Left)
+                        float hb = blurHead[lx, y];
+                        if (hb > 0.001f)
+                        {
+                            float headRelief = 0.42f + Mathf.Pow(hb, 0.55f) * 0.24f;
+                            // Eye
+                            float eyeD = Mathf.Sqrt((nx + 0.10f) * (nx + 0.10f) + (ny - 0.32f) * (ny - 0.32f));
+                            if (eyeD < 0.026f) headRelief += 0.07f;
+                            if (eyeD < 0.012f) headRelief -= 0.06f;
+                            relief = Mathf.Max(relief, headRelief);
+                        }
+
+                        // Central Heraldic Shield
+                        float sb = blurShield[lx, y];
+                        if (sb > 0.001f)
+                        {
+                            float shieldRelief = 0.48f + Mathf.Pow(sb, 0.55f) * 0.24f;
+                            if (ny < 0.04f)
+                            {
+                                float stripe = Mathf.Sin(nx * 32.0f * Mathf.PI);
+                                if (stripe > 0.0f) shieldRelief += 0.045f;
+                            }
+                            else
+                            {
+                                shieldRelief += 0.035f; // Chief horizontal band
+                            }
+                            relief = Mathf.Max(relief, shieldRelief);
+                        }
+
+                        h += relief * (config.reliefStrength / 1.6f);
+                    }
+
+                    heightField[x, y] = Mathf.Clamp01(h);
+                }
+            }
+
+            // 4. Compute Normal Map & AO Map
             normalMap = new Texture2D(width, height, TextureFormat.RGBA32, true, true)
             {
                 name = "Tex_TossCoin_Normal",
@@ -164,7 +332,7 @@ namespace Toss.Coin
             Color32[] normalPixels = new Color32[width * height];
             Color32[] aoPixels = new Color32[width * height];
 
-            float strength = 18.0f * (config.reliefStrength / 1.6f);
+            float strength = 14.0f * (config.reliefStrength / 1.6f);
 
             for (int y = 0; y < height; y++)
             {
@@ -193,7 +361,7 @@ namespace Toss.Coin
                     // Ambient Occlusion: crevice shadowing based on gradient magnitude and basin depth
                     float slope = Mathf.Sqrt(dx * dx + dy * dy);
                     float hVal = heightField[x, y];
-                    float ao = Mathf.Clamp01(1.0f - (slope * 0.12f + (1.0f - hVal) * 0.15f));
+                    float ao = Mathf.Clamp01(1.0f - (slope * 0.24f + (1.0f - hVal) * 0.06f));
                     byte aoByte = (byte)(ao * 255.0f);
                     aoPixels[idx] = new Color32(aoByte, aoByte, aoByte, 255);
                 }
@@ -204,6 +372,48 @@ namespace Toss.Coin
 
             aoMap.SetPixels32(aoPixels);
             aoMap.Apply(true, false);
+        }
+
+        private static float[,] BlurSeparable(float[,] src, int w, int h, int radius)
+        {
+            float[,] temp = new float[w, h];
+            float[,] dst = new float[w, h];
+
+            // Horizontal pass
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    float sum = 0f;
+                    int count = 0;
+                    for (int k = -radius; k <= radius; k++)
+                    {
+                        int sx = Mathf.Clamp(x + k, 0, w - 1);
+                        sum += src[sx, y];
+                        count++;
+                    }
+                    temp[x, y] = sum / count;
+                }
+            }
+
+            // Vertical pass
+            for (int x = 0; x < w; x++)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    float sum = 0f;
+                    int count = 0;
+                    for (int k = -radius; k <= radius; k++)
+                    {
+                        int sy = Mathf.Clamp(y + k, 0, h - 1);
+                        sum += temp[x, sy];
+                        count++;
+                    }
+                    dst[x, y] = sum / count;
+                }
+            }
+
+            return dst;
         }
 
         private static bool PointInPolygon(Vector2 p, Vector2[] poly)
@@ -219,23 +429,6 @@ namespace Toss.Coin
                 }
             }
             return inside;
-        }
-
-        private static float DistanceToPolygon(Vector2 p, Vector2[] poly)
-        {
-            float minSqrDist = float.MaxValue;
-            int j = poly.Length - 1;
-            for (int i = 0; i < poly.Length; j = i++)
-            {
-                Vector2 a = poly[j];
-                Vector2 b = poly[i];
-                Vector2 ab = b - a;
-                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(0.00001f, ab.sqrMagnitude));
-                Vector2 proj = a + t * ab;
-                float sqrDist = (p - proj).sqrMagnitude;
-                if (sqrDist < minSqrDist) minSqrDist = sqrDist;
-            }
-            return Mathf.Sqrt(minSqrDist);
         }
     }
 }
