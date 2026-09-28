@@ -340,23 +340,27 @@ MonoBehaviour:
     reliefStrength: 1.6
     brushedGrainStrength: 0.025
     metalTint: {r: 0.88, g: 0.89, b: 0.91, a: 1}
-    metallic: 0.96
-    metalRoughness: 0.42
+    metallic: 0.95
+    metalRoughness: 0.32
     edgeHighlightSmoothness: 0.62
     defaultObservationDistance: 0.4
-    defaultDisplayAngle: {x: 15, y: -20, z: 0}
+    defaultDisplayAngle: {x: 15, y: 160, z: 0}
     turntableRotationSpeed: 36
+  customReliefMesh: {fileID: 3721054252016238269, guid: d65c39263b4d49e41a10e86a3dbb180e, type: 3}
+  useProceduralMesh: 0
   inspectionMode: 1
   currentPreset: 0
   isPaused: 0
   currentRotationAngle: 0
   coinMaterial: {fileID: 2100000, guid: b6b0dac46cf3ac1428fc2843c6d058e9, type: 2}
-  normalMap: {fileID: 2800000, guid: 60221ca712e4ce945b6d12ae4c3acb1b, type: 3}
-  aoMap: {fileID: 2800000, guid: 99f64435c26fbee46960a0bafcf9ef73, type: 3}
+  normalMap: {fileID: 0}
+  aoMap: {fileID: 0}
   meshFilter: {fileID: 403758650}
   meshRenderer: {fileID: 403758649}
   backdropDark: {fileID: 947026940}
   backdropLight: {fileID: 88135802}
+  autoCaptureOnStart: 0
+  hasCapturedViews: 0
 --- !u!23 &403758649
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -409,7 +413,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 403758647}
-  m_Mesh: {fileID: 4300000, guid: 29969f087c295674bb552dbd3f8f738a, type: 2}
+  m_Mesh: {fileID: 3721054252016238269, guid: d65c39263b4d49e41a10e86a3dbb180e, type: 3}
 --- !u!4 &403758651
 Transform:
   m_ObjectHideFlags: 0
@@ -418,7 +422,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 403758647}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.12854321, y: -0.17216259, z: 0.022665637, w: 0.9763826}
+  m_LocalRotation: {x: 0.02266564, y: 0.97638255, z: -0.12854321, w: 0.17216264}
   m_LocalPosition: {x: 0, y: 1.6, z: 0.4}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
