@@ -119,9 +119,9 @@ def build_perfect_heads_sculpt():
     z_max = np.max(Z_detrend[mask_bool])
     Z_sfs = np.where(mask_bool, (Z_detrend - z_min) / (z_max - z_min), 0.0)
     
-    # 4. Edge-Aware Skin Planar Smoothing:
+    # 4. Edge-Aware Skin Planar Smoothing & Hair Consolidation:
     # Completely eliminate pebble micro-noise on open skin surfaces (forehead, cheek, neck)
-    # while preserving 100% sharpness on all structural ridges (nose, alar, eyelid, lips, jawline, hair, ear)
+    # and consolidate scratchy micro-strands in hair into bold, clean ribbon masses
     
     # Feature gradient magnitude to detect structural ridges
     Z_sfs = Z_sfs.astype(np.float32)
@@ -132,16 +132,20 @@ def build_perfect_heads_sculpt():
     
     # Skin candidate zone (inside bust, away from boundary, in facial/neck zone)
     is_skin_zone = (mask_bool) & (dist_in > 0.40) & ((X < 0.2) | (Y < -1.5)) & ~((X > 0.8) & (Y > -1.5))
-    # In skin zone, weight is 1.0 where surface is relatively flat (low gradient), fading to 0 near ridges
     ridge_threshold = 0.018
     skin_weight = np.where(is_skin_zone, smoothstep(ridge_threshold * 2.0, ridge_threshold * 0.5, grad_mag), 0.0)
     
     # Compute satin-smooth skin surface
-    Z_skin_smooth = cv2.GaussianBlur(Z_sfs.astype(np.float32), (19, 19), 3.5)
-    Z_skin_smooth = cv2.bilateralFilter(Z_skin_smooth, 9, 0.025, 0.025)
+    Z_skin_smooth = cv2.GaussianBlur(Z_sfs, (21, 21), 4.0)
+    Z_skin_smooth = cv2.bilateralFilter(Z_skin_smooth, 9, 0.030, 0.030)
     
-    # Blend: skin gets smooth satin surface, ridges retain 100% sharp crispness
-    Z_sfs_clean = Z_sfs * (1.0 - skin_weight * 0.85) + Z_skin_smooth * (skin_weight * 0.85)
+    # Hair consolidation: filter out scratchy micro-lines so hair reads as major sculptural ribbons
+    is_hair_zone = (mask_bool) & ~is_skin_zone
+    Z_hair_smooth = cv2.bilateralFilter(Z_sfs, 7, 0.035, 0.035)
+    
+    # Blend: skin gets smooth satin surface, hair consolidates micro-noise, ridges retain full crispness
+    Z_sfs_clean = Z_sfs * (1.0 - skin_weight * 0.88) + Z_skin_smooth * (skin_weight * 0.88)
+    Z_sfs_clean = np.where(is_hair_zone, Z_sfs * 0.45 + Z_hair_smooth * 0.55, Z_sfs_clean)
     
     # 5. Level 1 Macro Anatomical Form Injection:
     # Cranium dome
@@ -159,57 +163,63 @@ def build_perfect_heads_sculpt():
     macro_base = smax(macro_base, macro_fh, 0.06)
     macro_base = smax(macro_base, macro_nk, 0.08)
     
-    # 6. Level 2 Classical Facial Planes & Structural Ridges:
+    # 6. Level 2 Classical Facial Planes & Structural Ridges (Final Polish Tuning):
     Z_ridges = np.zeros_like(X, dtype=np.float32)
     
-    # Straight Grecian Nose Prism
+    # Straight Grecian Nose: smooth cosine cross-section for organic plane transition
     nose_pts = [(-6.2, 3.2), (-6.8, 2.1), (-7.4, 1.1), (-8.0, 0.14)]
     nose_d, nose_t = dist_to_polyline(X, Y, nose_pts)
-    nose_w = 0.55 - 0.12 * nose_t
-    nose_prism = 0.050 * np.maximum(1.0 - (nose_d / nose_w), 0.0)**1.2
+    nose_w = 0.60 - 0.12 * nose_t
+    u_nose = np.clip(nose_d / (nose_w + 1e-12), 0.0, 1.0)
+    nose_prism = 0.022 * np.cos(0.5 * np.pi * u_nose)**2 * safe_taper(nose_t, 0.4)
     Z_ridges += nose_prism
     
-    # Nasal alar groove
+    # Nasal alar groove: organic crease connecting alar to cheek
     alar_groove_pts = [(-6.9, 0.45), (-6.1, 0.35), (-5.8, -0.05), (-6.1, -0.25)]
     ag_d, ag_t = dist_to_polyline(X, Y, alar_groove_pts)
-    Z_ridges += -0.025 * np.exp(-(ag_d / 0.16)**2) * safe_taper(ag_t)
+    Z_ridges += -0.016 * np.exp(-(ag_d / 0.22)**2) * safe_taper(ag_t)
     
-    # Upper eyelid shelf overhang
+    # Upper eyelid shelf overhang: sculptural shelf with clean shadow step
     ul_pts = [(-5.4, 3.35), (-4.8, 3.58), (-4.0, 3.55), (-3.5, 3.30)]
     ul_d, ul_t = dist_to_polyline(X, Y, ul_pts)
-    Z_ridges += 0.035 * np.exp(-(ul_d / 0.20)**2) * safe_taper(ul_t)
+    Z_ridges += 0.026 * np.exp(-(ul_d / 0.24)**2) * safe_taper(ul_t)
     
-    # Oral fissure negative groove
+    # Lower eyelid presence
+    slit_pts = [(-5.2, 3.25), (-4.6, 3.32), (-3.8, 3.28)]
+    sl_d, sl_t = dist_to_polyline(X, Y, slit_pts)
+    lower_lid = 0.014 * np.exp(-((sl_d - 0.20) / 0.22)**2) * safe_taper(sl_t)
+    Z_ridges += lower_lid
+    
+    # Oral fissure: refined, organic lip separation without stepped boxes
     fis_pts = [(-6.7, -1.90), (-6.0, -1.95), (-5.4, -1.92)]
     fis_d, fis_t = dist_to_polyline(X, Y, fis_pts)
-    Z_ridges += -0.030 * np.exp(-(fis_d / 0.14)**2) * safe_taper(fis_t)
+    Z_ridges += -0.018 * np.exp(-(fis_d / 0.18)**2) * safe_taper(fis_t)
     
-    # Mandibular jawline step down to neck
+    # Mandibular jawline: graceful feminine edge stepping down into neck
     jaw_pts = [(-6.0, -4.2), (-4.5, -4.8), (-2.5, -4.6), (-0.5, -3.8), (0.8, -1.8)]
     jaw_d, jaw_t = dist_to_polyline(X, Y, jaw_pts)
-    Z_ridges += 0.035 * np.exp(-(jaw_d / 0.35)**2) * safe_taper(jaw_t)
+    Z_ridges += 0.020 * np.exp(-(jaw_d / 0.42)**2) * safe_taper(jaw_t)
     
-    # Submandibular shadow step
+    # Submandibular shadow step: soft, elegant transition
     uj_pts = [(-4.2, -5.2), (-2.2, -5.0), (-0.2, -4.2)]
     uj_d, uj_t = dist_to_polyline(X, Y, uj_pts)
-    Z_ridges += -0.030 * np.exp(-(uj_d / 0.38)**2) * safe_taper(uj_t)
+    Z_ridges += -0.018 * np.exp(-(uj_d / 0.44)**2) * safe_taper(uj_t)
     
-    # 7. Level 2 Hair Ribbon Crest Enhancement:
+    # 7. Level 2 Hair Ribbon Crest Polish (Reinforces major masses, suppresses micro-noise):
     hair_ribbons = [
-        ([(-4.5, 7.8), (-3.0, 9.6), (-0.8, 10.8), (1.8, 10.6), (4.2, 9.8), (6.5, 7.8), (7.8, 5.2)], 0.030),
-        ([(-4.2, 6.8), (-2.4, 8.8), (-0.2, 9.6), (2.2, 9.0), (4.8, 8.2), (7.0, 6.6), (8.2, 4.5)], 0.035),
-        ([(-3.8, 5.8), (-1.8, 7.6), (0.5, 8.2), (2.8, 7.5), (5.2, 6.8), (7.5, 5.2), (8.5, 3.2)], 0.035),
-        ([(-3.2, 4.8), (-1.2, 6.2), (1.2, 6.5), (3.5, 5.8), (5.8, 4.8), (7.8, 3.6), (8.6, 2.2)], 0.040),
-        ([(-2.2, 3.8), (-0.2, 4.8), (2.0, 4.8), (4.2, 4.0), (6.2, 3.2), (7.8, 2.2), (8.4, 1.2)], 0.035),
-        ([(0.5, 2.8), (2.2, 3.2), (4.0, 2.6), (5.8, 1.8), (7.2, 1.0), (8.0, 0.2)], 0.030),
+        ([(-4.5, 7.8), (-3.0, 9.6), (-0.8, 10.8), (1.8, 10.6), (4.2, 9.8), (6.5, 7.8), (7.8, 5.2)], 0.020),
+        ([(-4.2, 6.8), (-2.4, 8.8), (-0.2, 9.6), (2.2, 9.0), (4.8, 8.2), (7.0, 6.6), (8.2, 4.5)], 0.022),
+        ([(-3.8, 5.8), (-1.8, 7.6), (0.5, 8.2), (2.8, 7.5), (5.2, 6.8), (7.5, 5.2), (8.5, 3.2)], 0.024),
+        ([(-3.2, 4.8), (-1.2, 6.2), (1.2, 6.5), (3.5, 5.8), (5.8, 4.8), (7.8, 3.6), (8.6, 2.2)], 0.026),
+        ([(-2.2, 3.8), (-0.2, 4.8), (2.0, 4.8), (4.2, 4.0), (6.2, 3.2), (7.8, 2.2), (8.4, 1.2)], 0.022),
+        ([(0.5, 2.8), (2.2, 3.2), (4.0, 2.6), (5.8, 1.8), (7.2, 1.0), (8.0, 0.2)], 0.020),
     ]
     for pts, amp in hair_ribbons:
         rd, rt = dist_to_polyline(X, Y, pts)
-        Z_ridges += amp * np.exp(-(rd / 0.45)**2) * safe_taper(rt)
+        Z_ridges += amp * np.exp(-(rd / 0.60)**2) * safe_taper(rt)
     
     # 8. Combine All Levels:
-    # 40% Macro Base + 55% Clean SfS Features + 5% Sculptural Ridges
-    Z_combined = 0.40 * (macro_base / np.max(macro_base)) + 0.55 * Z_sfs_clean + Z_ridges
+    Z_combined = 0.42 * (macro_base / np.max(macro_base)) + 0.58 * Z_sfs_clean + Z_ridges
     
     # 9. Numismatic Draft Chamfer along Silhouette:
     draft_w = 0.22 # mm
@@ -217,9 +227,14 @@ def build_perfect_heads_sculpt():
     draft_shelf = 0.08 # mm
     Z_final = np.where(mask_bool, draft_shelf + draft_step * (Z_combined * (MAX_RELIEF_HEIGHT - draft_shelf)), 0.0)
     
+    # 10. Global Surface Polish Pass (Bilateral regularizer across entire bust):
+    # Preserves all sharp ridges while polishing planar transitions and removing faceting
+    Z_polished = cv2.bilateralFilter(Z_final.astype(np.float32), 7, 0.010, 0.010)
+    Z_final = np.where(mask_bool, Z_polished, 0.0)
+    
     # Silky satin finish on skin
-    Z_final_smooth = cv2.bilateralFilter(Z_final.astype(np.float32), 7, 0.012, 0.012)
-    Z_final = np.where((skin_weight > 0.5) & (dist_in > 0.6), Z_final_smooth, Z_final)
+    Z_final_smooth = cv2.bilateralFilter(Z_final.astype(np.float32), 7, 0.014, 0.014)
+    Z_final = np.where((skin_weight > 0.4) & (dist_in > 0.5), Z_final_smooth, Z_final)
     
     # Ensure zero outside silhouette
     Z_final = np.where(mask_bool, Z_final, 0.0)
