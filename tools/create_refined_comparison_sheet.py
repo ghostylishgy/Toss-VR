@@ -116,18 +116,19 @@ def make_silver_sheet():
     print(f"Saved: {out_path}")
 
 def make_before_after():
+    baseline_dir = os.path.join(BASE_DIR, "Baseline_Refined")
     pairs = [
-        # (Baseline path, Refined path, View title)
-        (os.path.join(BASE_DIR, "Clay_View_1_Heads_Front.png"), os.path.join(IN_DIR, "Clay_Front.png"), "FRONT VIEW (CLAY)", "Left: Baseline (Flat/Soft) | Right: Refined Classical Sculpt"),
-        (os.path.join(BASE_DIR, "Clay_View_2_Heads_Angle45.png"), os.path.join(IN_DIR, "Clay_45deg.png"), "45° OBLIQUE VIEW (CLAY)", "Left: Baseline (Waxy Blobs) | Right: Refined Bas-Relief Depth"),
-        (os.path.join(BASE_DIR, "Clay_View_4_Heads_Closeup.png"), os.path.join(IN_DIR, "Clay_Macro.png"), "MACRO CLOSE-UP (CLAY)", "Left: Baseline (Indistinct Eyelids/Lips) | Right: Refined Eyelid Ledge, Nose Prism & Hair Ribbons"),
+        # (Baseline path, Refined path, View title, Subtitle)
+        (os.path.join(baseline_dir, "Clay_Front.png"), os.path.join(IN_DIR, "Clay_Front.png"), "FRONT VIEW (CLAY)", "Left: Baseline (Indistinct Cheek Plane) | Right: Product Sculpt (Polished Facial Planes & Ribbon Masses)"),
+        (os.path.join(baseline_dir, "Clay_45deg.png"), os.path.join(IN_DIR, "Clay_45deg.png"), "45° OBLIQUE VIEW (CLAY)", "Left: Baseline (Earlier Sculpt) | Right: Product Sculpt (Refined Cheekbone, Almond Eye & Bun Coils)"),
+        (os.path.join(baseline_dir, "Clay_Macro.png"), os.path.join(IN_DIR, "Clay_Macro.png"), "MACRO CLOSE-UP (CLAY)", "Left: Baseline (Earlier Features) | Right: Product Sculpt (Grecian Nose, Almond Lid Shelf, Philtrum & Mentolabial Groove)"),
     ]
     
     pw, ph = 480, 480
     sheet = Image.new("RGB", (pw * 2 + 30, (ph + 56) * 3 + 110), (12, 13, 15))
     draw = ImageDraw.Draw(sheet)
     draw.text((20, 16), "TOSS-VR // P1.1 HERO COIN — HEADS SCULPT BEFORE vs AFTER COMPARISON", fill=(255, 255, 255), font=get_font(24))
-    draw.text((20, 46), "Rigorous Geometric Comparison Under Matte Clay. Left: Current Baseline | Right: Refined Classical Numismatic Relief", fill=(160, 165, 175), font=get_font(15))
+    draw.text((20, 46), "Rigorous Geometric Comparison Under Matte Clay. Left: Current Baseline | Right: Final Polished Product Sculpt", fill=(160, 165, 175), font=get_font(15))
     
     y = 85
     for base_p, ref_p, title, sub in pairs:
