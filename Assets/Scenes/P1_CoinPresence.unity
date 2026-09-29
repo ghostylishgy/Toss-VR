@@ -349,9 +349,9 @@ MonoBehaviour:
   customReliefMesh: {fileID: 3721054252016238269, guid: d65c39263b4d49e41a10e86a3dbb180e, type: 3}
   useProceduralMesh: 0
   inspectionMode: 1
-  currentPreset: 0
+  currentPreset: 3
   isPaused: 0
-  currentRotationAngle: 0
+  currentRotationAngle: 135
   coinMaterial: {fileID: 2100000, guid: b6b0dac46cf3ac1428fc2843c6d058e9, type: 2}
   normalMap: {fileID: 0}
   aoMap: {fileID: 0}
@@ -360,7 +360,6 @@ MonoBehaviour:
   backdropDark: {fileID: 947026940}
   backdropLight: {fileID: 88135802}
   autoCaptureOnStart: 0
-  hasCapturedViews: 0
 --- !u!23 &403758649
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -422,7 +421,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 403758647}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.02266564, y: 0.97638255, z: -0.12854321, w: 0.17216264}
+  m_LocalRotation: {x: 0.14700033, y: -0.3378093, z: 0.05350374, w: 0.9281235}
   m_LocalPosition: {x: 0, y: 1.6, z: 0.4}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -439,6 +438,7 @@ GameObject:
   m_Component:
   - component: {fileID: 438439694}
   - component: {fileID: 438439693}
+  - component: {fileID: 438439695}
   m_Layer: 0
   m_Name: Key_DirectionalLight
   m_TagString: Untagged
@@ -526,6 +526,29 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &438439695
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 438439692}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Version: 3
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_LightLayerMask: 1
+  m_RenderingLayers: 1
+  m_CustomShadowLayers: 0
+  m_ShadowLayerMask: 1
+  m_ShadowRenderingLayers: 1
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
 --- !u!1 &500722715
 GameObject:
   m_ObjectHideFlags: 0
@@ -607,8 +630,10 @@ Material:
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
-  stringTagMap: {}
-  disabledShaderPasses: []
+  stringTagMap:
+    RenderType: Opaque
+  disabledShaderPasses:
+  - MOTIONVECTORS
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
@@ -640,7 +665,7 @@ Material:
     - _ZWrite: 1
     m_Colors:
     - _BaseColor: {r: 0.12, g: 0.13, b: 0.14, a: 1}
-    - _Color: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+    - _Color: {r: 0.11999995, g: 0.12999997, b: 0.13999996, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
 --- !u!1 &824454991
@@ -653,6 +678,7 @@ GameObject:
   m_Component:
   - component: {fileID: 824454993}
   - component: {fileID: 824454992}
+  - component: {fileID: 824454994}
   m_Layer: 0
   m_Name: Fill_DirectionalLight
   m_TagString: Untagged
@@ -740,6 +766,29 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &824454994
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 824454991}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Version: 3
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_LightLayerMask: 1
+  m_RenderingLayers: 1
+  m_CustomShadowLayers: 0
+  m_ShadowLayerMask: 1
+  m_ShadowRenderingLayers: 1
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
 --- !u!1 &947026940
 GameObject:
   m_ObjectHideFlags: 0

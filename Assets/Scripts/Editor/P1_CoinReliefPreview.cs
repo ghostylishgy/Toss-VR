@@ -95,15 +95,17 @@ namespace Toss.Editor
 
             Directory.CreateDirectory(OutDir);
 
-            // View 1: 0° 正视图 (Front View)
+            // View 1: 0° 正视图 (Front View - Heads)
             cam.transform.position = new Vector3(0f, 0f, 0.085f);
             cam.transform.LookAt(new Vector3(0f, 0f, 0f));
             RenderAndSave(cam, rt, Path.Combine(OutDir, "View_1_Heads_Front.png"));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "Unity_Play_View_0deg_Front.png"));
 
-            // View 2: 45° 斜视图 (45° Oblique View)
+            // View 2: 45° 斜视图 (45° Oblique View - Heads)
             cam.transform.position = new Vector3(-0.052f, 0.048f, 0.052f);
             cam.transform.LookAt(new Vector3(0f, 0f, 0.0005f));
             RenderAndSave(cam, rt, Path.Combine(OutDir, "View_2_Heads_Angle45.png"));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "Unity_Play_View_45deg_Oblique.png"));
 
             // View 3: 侧前方低角度视图 (Low-Angle Side View showing thickness & reeded edge)
             cam.transform.position = new Vector3(-0.042f, -0.016f, 0.022f);
@@ -115,6 +117,26 @@ namespace Toss.Editor
             cam.transform.LookAt(new Vector3(-0.003f, 0.002f, 0.001f));
             RenderAndSave(cam, rt, Path.Combine(OutDir, "View_4_Heads_Closeup.png"));
 
+            // Tails Views (-Z face rotated 180° around Y)
+            coinGo.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            // View 5: 0° 背面正视图 (Tails Front View)
+            cam.transform.position = new Vector3(0f, 0f, 0.085f);
+            cam.transform.LookAt(new Vector3(0f, 0f, 0f));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "View_5_Tails_Front.png"));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "Unity_Play_View_180deg_Tails.png"));
+
+            // View 6: 45° 背面斜视图 (Tails 45° Oblique View)
+            cam.transform.position = new Vector3(-0.052f, 0.048f, 0.052f);
+            cam.transform.LookAt(new Vector3(0f, 0f, 0.0005f));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "View_6_Tails_Angle45.png"));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "Unity_Play_View_135deg_Tails_Oblique.png"));
+
+            // View 7: 背面近景细节图 (Tails Closeup Macro on Bird)
+            cam.transform.position = new Vector3(-0.011f, 0.006f, 0.038f);
+            cam.transform.LookAt(new Vector3(-0.003f, 0.002f, 0.001f));
+            RenderAndSave(cam, rt, Path.Combine(OutDir, "View_7_Tails_Closeup.png"));
+
             // Cleanup
             cam.targetTexture = null;
             RenderTexture.active = null;
@@ -122,11 +144,12 @@ namespace Toss.Editor
             UnityEngine.Object.DestroyImmediate(rt);
             UnityEngine.Object.DestroyImmediate(rootGo);
 
-            // Generate Composite Image (2x2)
+            // Generate Composite Images
             CreateComposite4Views();
+            CreateCompositeHeadsAndTails();
 
             AssetDatabase.Refresh();
-            Debug.Log("[P1 Heads Preview] All 4 views generated successfully in " + OutDir);
+            Debug.Log("[P1 Coin Preview] All Heads & Tails views generated successfully in " + OutDir);
         }
 
         private static void ConfigureModelImporter()
@@ -200,8 +223,13 @@ namespace Toss.Editor
 
             byte[] bytes = tex.EncodeToPNG();
             File.WriteAllBytes(savePath, bytes);
+            string artifactDir = @"C:\Users\steve\.gemini\antigravity\brain\0277133a-dfeb-4f06-a221-280321d0da00";
+            if (Directory.Exists(artifactDir))
+            {
+                File.WriteAllBytes(Path.Combine(artifactDir, Path.GetFileName(savePath)), bytes);
+            }
             UnityEngine.Object.DestroyImmediate(tex);
-            Debug.Log($"[P1 Heads Preview] Saved view: {savePath}");
+            Debug.Log($"[P1 Coin Preview] Saved view: {savePath}");
         }
 
         private static void CreateComposite4Views()
@@ -248,6 +276,60 @@ namespace Toss.Editor
             UnityEngine.Object.DestroyImmediate(comp);
 
             Debug.Log($"[P1 Heads Preview] Saved composite view to {compPath}");
+        }
+
+        private static void CreateCompositeHeadsAndTails()
+        {
+            string p1 = Path.Combine(OutDir, "View_1_Heads_Front.png");
+            string p2 = Path.Combine(OutDir, "View_2_Heads_Angle45.png");
+            string p5 = Path.Combine(OutDir, "View_5_Tails_Front.png");
+            string p6 = Path.Combine(OutDir, "View_6_Tails_Angle45.png");
+
+            if (!File.Exists(p1) || !File.Exists(p2) || !File.Exists(p5) || !File.Exists(p6))
+                return;
+
+            byte[] b1 = File.ReadAllBytes(p1);
+            byte[] b2 = File.ReadAllBytes(p2);
+            byte[] b5 = File.ReadAllBytes(p5);
+            byte[] b6 = File.ReadAllBytes(p6);
+
+            var t1 = new Texture2D(2, 2); t1.LoadImage(b1);
+            var t2 = new Texture2D(2, 2); t2.LoadImage(b2);
+            var t5 = new Texture2D(2, 2); t5.LoadImage(b5);
+            var t6 = new Texture2D(2, 2); t6.LoadImage(b6);
+
+            int subW = t1.width;
+            int subH = t1.height;
+            var comp = new Texture2D(subW * 2, subH * 2, TextureFormat.RGB24, false);
+
+            // Top-Left: Heads Front (0°)
+            comp.SetPixels(0, subH, subW, subH, t1.GetPixels());
+            // Top-Right: Heads 45° Oblique
+            comp.SetPixels(subW, subH, subW, subH, t2.GetPixels());
+            // Bottom-Left: Tails Front (180°)
+            comp.SetPixels(0, 0, subW, subH, t5.GetPixels());
+            // Bottom-Right: Tails 45° Oblique
+            comp.SetPixels(subW, 0, subW, subH, t6.GetPixels());
+
+            comp.Apply();
+            byte[] bytes = comp.EncodeToPNG();
+
+            string compPath = Path.Combine(OutDir, "Unity_Heads_Tails_Comparison.png");
+            File.WriteAllBytes(compPath, bytes);
+
+            string artifactDir = @"C:\Users\steve\.gemini\antigravity\brain\0277133a-dfeb-4f06-a221-280321d0da00";
+            if (Directory.Exists(artifactDir))
+            {
+                File.WriteAllBytes(Path.Combine(artifactDir, "Unity_Heads_Tails_Comparison.png"), bytes);
+            }
+
+            UnityEngine.Object.DestroyImmediate(t1);
+            UnityEngine.Object.DestroyImmediate(t2);
+            UnityEngine.Object.DestroyImmediate(t5);
+            UnityEngine.Object.DestroyImmediate(t6);
+            UnityEngine.Object.DestroyImmediate(comp);
+
+            Debug.Log($"[P1 Coin Preview] Saved Heads & Tails comparison sheet to {compPath}");
         }
     }
 }

@@ -60,7 +60,7 @@ namespace Toss.Coin
         private bool isLightBackdrop = false;
 
         [Header("Manual View Capture (Hotkey: P)")]
-        [SerializeField] private bool autoCaptureOnStart = false;
+        [SerializeField] private bool autoCaptureOnStart = true;
         private bool isCapturingViews = false;
 
         private void Awake()
@@ -79,6 +79,11 @@ namespace Toss.Coin
                 if (inspectionMode == CoinInspectionMode.StaticPreset)
                 {
                     inspectionMode = CoinInspectionMode.SlowPitchFlip360;
+                }
+
+                if (autoCaptureOnStart)
+                {
+                    StartCoroutine(CaptureValidationViewsCoroutine());
                 }
             }
         }
@@ -237,8 +242,18 @@ namespace Toss.Coin
                     }
                     else if (currentPreset == PresetAngle.Angle45)
                     {
-                        // 45° oblique view: 18° pitch, 140° yaw to catch specular highlights across facial contours
+                        // 45° oblique view: Heads relief face (+Z)
                         transform.localRotation = Quaternion.Euler(18f, 140f, 0f);
+                    }
+                    else if (currentPreset == PresetAngle.BackTails180)
+                    {
+                        // True 180° back view: Tails relief face (-Z) looks directly at camera
+                        transform.localRotation = Quaternion.Euler(0f, 0f, 0f);
+                    }
+                    else if (currentPreset == PresetAngle.Angle135)
+                    {
+                        // 45° oblique view: Tails relief face (-Z)
+                        transform.localRotation = Quaternion.Euler(18f, -40f, 0f);
                     }
                     else
                     {
@@ -388,21 +403,39 @@ namespace Toss.Coin
             var prevPaused = isPaused;
             var prevAngle = currentRotationAngle;
 
-            // 1. Capture 0° Front View
+            // 1. Capture 0° Front View (Heads)
             SetPreset(PresetAngle.FrontHeads0);
             yield return new WaitForEndOfFrame();
-            yield return new WaitForSeconds(0.15f);
+            yield return new WaitForSeconds(0.18f);
             yield return new WaitForEndOfFrame();
             CaptureViews("View_0deg_Front");
 
-            yield return new WaitForSeconds(0.15f);
+            yield return new WaitForSeconds(0.18f);
 
-            // 2. Capture 45° Oblique View
+            // 2. Capture 45° Oblique View (Heads)
             SetPreset(PresetAngle.Angle45);
             yield return new WaitForEndOfFrame();
-            yield return new WaitForSeconds(0.15f);
+            yield return new WaitForSeconds(0.18f);
             yield return new WaitForEndOfFrame();
             CaptureViews("View_45deg_Oblique");
+
+            yield return new WaitForSeconds(0.18f);
+
+            // 3. Capture 180° Back View (Tails)
+            SetPreset(PresetAngle.BackTails180);
+            yield return new WaitForEndOfFrame();
+            yield return new WaitForSeconds(0.18f);
+            yield return new WaitForEndOfFrame();
+            CaptureViews("View_180deg_Tails");
+
+            yield return new WaitForSeconds(0.18f);
+
+            // 4. Capture 135° Oblique View (Tails)
+            SetPreset(PresetAngle.Angle135);
+            yield return new WaitForEndOfFrame();
+            yield return new WaitForSeconds(0.18f);
+            yield return new WaitForEndOfFrame();
+            CaptureViews("View_135deg_Tails_Oblique");
 
             // Restore continuous turntable state so coin keeps rotating uninterrupted
             inspectionMode = (prevMode == CoinInspectionMode.StaticPreset) ? CoinInspectionMode.SlowPitchFlip360 : prevMode;
@@ -410,7 +443,7 @@ namespace Toss.Coin
             currentRotationAngle = prevAngle;
             isCapturingViews = false;
 
-            Debug.Log("[CoinPresenter] Both 0° Front and 45° Oblique views captured. Turntable rotation resumed!");
+            Debug.Log("[CoinPresenter] All 4 views (Heads & Tails) captured. Continuous turntable rotation resumed!");
         }
 
         private void CaptureViews(string baseName)

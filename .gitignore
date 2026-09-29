@@ -63,3 +63,9 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Blender backups and Python cache
+*.blend1
+*.blend1.meta
+__pycache__/
+*.pyc
