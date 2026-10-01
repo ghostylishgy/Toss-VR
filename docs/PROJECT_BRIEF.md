@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.25 ｜ 更新日期：2026-09-27 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.26 ｜ 更新日期：2026-10-01 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.26 更新（2026-10-01，P1.1 Hero Coin Visual 正式冻结）：① `e501566a6374cce213be70bf98c922d2621ae83c` 经人工视觉验收与 Unity / Meta XR Simulator 实际观察后，正式定为 **P1.1 Hero Coin Visual = PASS / FROZEN** 的工程基线；② 冻结范围包括 30.0mm × 2.4mm coin body、48 齿 reeded edge、Heads 古典侧颜真实几何浮雕、Tails 银翼飞鸟真实几何浮雕、Satin Silver 材质与连续慢速展示旋转；③ Heads/Tails 主要 relief 继续遵循 **Geometry for form, Normal/AO for micro-detail**，后续不再因高倍率局部瑕疵继续无边界雕刻，只有真实 runtime、正常观看距离可读性或性能 blocker 才允许重开视觉资产；④ Tails wing-root / negative-pocket 等后续局部实验未纳入冻结资产，已回退到 `e501566` 稳定版本；⑤ P1 下一阶段正式转入 **P1.2 Finger Play**，先验证 `Grab → Manipulate → Release → Settle` 的低能量把玩闭环，再依次进行 Perceived Weight A/B 与 Invisible Generosity 原理实验。
 >
 > v0.25 更新（2026-09-27，P1 relief 渲染路线冻结）：① 经 Muse 按 Unity 6 / URP 17.x / Meta 官方文档核查，Normal Map 只改变着色法线，不改变真实几何或 silhouette；URP Lit Height Map 为 parallax UV 偏移，不是真实 displacement；URP 原生无 tessellation、无 POM，Lit 也无内置 displacement；② Shader Graph 可做 vertex displacement，但受已有顶点密度约束，不能把低密 mesh 自动变成高质量雕塑；③ Toss Coin 的人物/翼徽等主要 bas-relief 改为 **真实几何 relief**，Unity 负责导入与实时 PBR，不再要求 `CoinTextureGenerator` 用 normal/AO/heightfield 承担主雕塑体积；④ 冻结管线原则：**Geometry for form, Normal/AO for micro-detail**；真实几何负责 silhouette、rim、edge、主要浮雕体积，Normal/AO 只负责发丝/刻痕/拉丝/沟槽等微细节；⑤ DCC（Blender/ZBrush 等）制作 relief → FBX 导入 Unity 为当前主路线，Shader Graph vertex displacement 仅保留为实验备选；⑥ 当前 `087cbb4` 的 Heads/Tails 可读性改进不视为最终视觉验收通过，P1.1 继续处于视觉迭代状态。
 >
@@ -610,9 +612,11 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 | D-037 | 2026-09-27 | P1 首轮只验证 Finger Play、Perceived Weight、Invisible Generosity 三类最小实验；Euler Disk/真实桌面交互为 capability-dependent extension | Active |
 | D-038 | 2026-09-27 | Summon/Dismiss 必须作为后续 Coin relationship 设计项，但当前只冻结 <1s/单手/低幅度/无 UI 等体验原则，不提前指定 Snap 或 Palm-up 为主手势 | Active |
 | D-039 | 2026-09-27 | P1 失败处理坚持无传统失败态：tracking/gesture 失败不弹 UI、不 fail buzz，采用稳定等待/settle/recover | Active |
-| D-040 | 2026-09-27 | `a4e1dfe` 仅作为 **P1.1 PASS candidate**；在人工视觉验收完成前不得宣布 P1.1 PASS；深浅 backdrop 不等同于真实 passthrough 验证，normal-map relief 不得描述为真实几何深度 | Active |
+| D-040 | 2026-09-27 | `a4e1dfe` 仅作为 **P1.1 PASS candidate**；在人工视觉验收完成前不得宣布 P1.1 PASS；深浅 backdrop 不等同于真实 passthrough 验证，normal-map relief 不得描述为真实几何深度 | Superseded by D-043 |
 | D-041 | 2026-09-27 | P1 Hero Coin relief 正式采用 **Geometry for form, Normal/AO for micro-detail**；DCC 真实 bas-relief Mesh → FBX → Unity PBR 为主路线，程序化 normal/heightfield 不再承担主要雕塑体积 | Active |
-| D-042 | 2026-09-27 | `087cbb4` 仅证明 Heads/Tails 大形可读性提高，不代表高级雕塑质感已达标；P1.1 视觉验收继续未通过，禁止基于当前浮雕继续进入 P1.2 | Active |
+| D-042 | 2026-09-27 | `087cbb4` 仅证明 Heads/Tails 大形可读性提高，不代表高级雕塑质感已达标；P1.1 视觉验收继续未通过，禁止基于当前浮雕继续进入 P1.2 | Superseded by D-043 |
+| D-043 | 2026-10-01 | **P1.1 Hero Coin Visual 正式 PASS / FROZEN**；`e501566a6374cce213be70bf98c922d2621ae83c` 为冻结工程基线。Heads、Tails、coin body、48 reeds、Satin Silver 与连续展示旋转仅在真实 runtime、正常观看距离可读性或性能 blocker 出现时允许重开 | Active |
+| D-044 | 2026-10-01 | P1 下一开发阶段为 **P1.2 Finger Play**：先建立可拔除的低能量把玩实验 Harness，验证 `Grab → Manipulate → Release → Settle`；本阶段不进入正式 Toss 状态机、RNG、Catch/Recovery | Active |
 
 ---
 
@@ -648,40 +652,58 @@ Windows 主机注记：
 - 卸载 KB5124010 并重启后，之前对 `MetaXRSimulator.exe` / `ISDKEngineTelemetry.dll` 的 Code Integrity 阻止未复现。
 - 该现象只记录为本机 A/B 相关性，不视为微软官方确认的 KB 因果问题。
 
-### 12.2 P1 Coin Presence / Coin Play 允许开始
+### 12.2 P1.1 Hero Coin Visual 最终结论
 
-P1 的目标不再只是“把硬币放进场景”，而是按 §5.6 验证：
+```text
+P1.1 HERO COIN VISUAL = PASS / FROZEN
+```
 
-- 这枚硬币是否一眼像 coin，但明显属于 Toss 自己。
-- 它在静止、翻转、边缘朝向、低能量把玩时是否始终有存在感。
-- 没有真实触觉时，惯性、声音、时序、遮挡与 settle 能否制造“手里有个东西”的感觉。
-- 用户是否愿意无目标地重复玩它，而不只是为了得到 Heads/Tails。
-- 系统辅助能否做到慷慨但隐形。
+冻结工程基线：
 
-P1 首轮实现 / 原型范围：
+- Commit：`e501566a6374cce213be70bf98c922d2621ae83c`。
+- 30.0mm × 2.4mm coin body。
+- 48 齿 reeded edge。
+- Heads：古典女性侧颜真实几何 bas-relief。
+- Tails：简化银翼飞鸟真实几何 bas-relief。
+- Satin Silver URP PBR 材质。
+- Play 后连续慢速展示旋转，不自动暂停。
 
-1. Coin Presence：形、材质、比例、边缘、Heads/Tails 大剪影、基础空间位置；主要 relief 必须按 §5.6 的 Coin Relief Rendering Pipeline 使用真实几何资产路线。
-2. Motion Readability：静态 + 360° flip/roll/rotation 观察。
-3. Finger Play 最小原型。
-4. Perceived Weight A/B 原型。
-5. Invisible Generosity 原理实验（不进入完整 Toss/Catch 状态机）。
-6. 声音与 tempo 可作为上述实验的一部分，但不建设完整音频系统。
+冻结规则：
 
-P1 仍明确不进入：
+- 不再因高倍率局部瑕疵继续雕刻 Heads/Tails。
+- wing-root / negative-pocket 等未通过实验不进入冻结资产。
+- 只有真实 runtime blocker、正常观看距离可读性 blocker 或性能 blocker 才允许重开 P1.1 Visual。
+- P0 XR 输入基线、OpenXR、Meta XR Simulator 配置继续冻结。
 
-- 正式 Toss 状态机。
-- RNG。
-- Heads/Tails 结果结算。
-- 完整 Catch / Recovery。
-- Decision Mode。
-- 游戏化进度系统。
-- 依赖未验证 Scene/Depth/Spatial Mesh 的主流程。
+### 12.3 当前下一步：P1.2 Finger Play
 
-P1 必须继续保持：
+P1.2 的核心问题是：**用户把这枚硬币拿在手里低能量把玩时，是否像手里真的有个东西，并愿意无目标地重复玩。**
 
-- P0 XR 输入基线冻结，不破坏已通过链路。
-- hands-first / controller-free。
-- Zero-UI。
-- Comfort Envelope。
-- 所有体验关键参数可调，不把未经实验的毫秒、角度、半径等数字写成硬规则。
+第一轮只建立一个独立、可拔除的 Finger Play Harness，优先验证：
 
+1. `Grab`：复用已通过的 hands-first / Look-and-Pinch 输入链，用户可以自然取得硬币；gaze 仍只表示 attention，不触发决定性状态。
+2. `Manipulate`：硬币跟随手部平移与旋转，允许手腕翻转、轻捻等低能量动作；先求稳定、可读，不同时扩张多个花式手势。
+3. `Release`：松手后不进入正式 Toss，不生成 RNG，只保留小幅、可控的惯性表现。
+4. `Settle`：硬币自然收束到稳定状态，可再次抓取；tracking 丢失时按 P1 Failure attitude 静默 wait / settle / recover。
+
+P1.2 工程边界：
+
+- 不进入 `Armed → Flight` 正式 Toss 状态机。
+- 不生成 Heads/Tails RNG，不做结果结算。
+- 不做完整 Catch / Recovery。
+- 不依赖 Scene/Depth/Spatial Mesh。
+- 不修改冻结的 Hero Coin 视觉资产。
+- 所有 follow / damping / angular inertia / settle 参数必须可调，不提前写死“最佳值”。
+
+P1.2 验收信号：
+
+- 在 Simulator 中可以稳定重复 `Grab → Manipulate → Release → Settle`。
+- 无明显跳变、瞬移、抖动或硬币穿手式视觉破坏。
+- 用户无需提示即可自然重复几次低能量把玩动作。
+- Console 0 新增红色 Error，P0 Look-and-Pinch 基线不回归。
+
+P1.2 通过后按顺序进入：
+
+- **P1.3 Perceived Weight**：Rigid Follow vs Spring/Damped Follow，加入 angular inertia / settle，并完成有声 vs 无声 A/B；核心问题是“哪个更像手里真的有个东西”。
+- **P1.4 Invisible Generosity**：比较 0 assistance / subtle / obvious，寻找辅助开始被察觉的阈值。
+- P1 收口后才进入 **P2 Guaranteed Toss**。
