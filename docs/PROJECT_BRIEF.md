@@ -1,8 +1,10 @@
 # Toss · Meta VR Glasses 抛硬币应用 — 四方协作共享简报
 
-> 版本：v0.26 ｜ 更新日期：2026-10-01 ｜ 维护：GPT（唯一规则写入者）
+> 版本：v0.27 ｜ 更新日期：2026-10-05 ｜ 维护：GPT（唯一规则写入者）
 > 用途：侃哥（总协调/拍板）、Muse（前沿事实核查 + 创意提案）、GPT（架构研判 + 规则维护 + Gemini 提示词）、Gemini（工程实现）
 > **本文件 `docs/PROJECT_BRIEF.md` 是项目唯一事实源（SSOT）。规则、边界、已确认事实与正式决策，以仓库版本为准。**
+>
+> v0.27 更新（2026-10-05，P1.2A/B Grab + Manipulate Runtime PASS）：① 工程提交 `4d3fd065df452713437bdcdab0ff3d1b35ed714b`（`feat(coin): validate finger play grab and manipulation`）已推送并作为 P1.2A/B 稳定 checkpoint；② Meta XR Simulator v207 / Meta VR Glasses / Look and Pinch 下完成真实人工运行验收：Hero Coin 初始展示自转正常，Look + Pinch 后立即停止展示旋转并取得硬币，Manipulate 阶段由 selected hand tracking pose 驱动，Release 后当前 baseline 保持释放位姿；③ 连续抓放与重复 Play 冷启动均无新增红色 Error，`FINGER_PLAY_GRAB_BEGIN / END` 可稳定成对出现；FingerPlay 自身 kinematic velocity warning 已清除，剩余 OVRPlugin swapchain / OVRManager focus 生命周期日志不作为 P1.2 blocker；④ gaze 的职责继续冻结为 attention / target acquisition，pinch 表达 intent，实际 manipulation authority 属于 selected hand pose；⑤ 单 owner / recovery lock / Setup preflight + rollback 已纳入稳定实现，P1.1 Frozen Hero Coin、P0 XR baseline、Packages / OpenXR / ProjectSettings 未重开；⑥ **本次只判定 P1.2A/B（Grab + Manipulate）PASS，不等于整个 P1.2 完成**，下一阶段进入 **P1.2C Release / Settle**，只做低能量释放与收束，不进入正式 Toss / RNG / Catch。
 >
 > v0.26 更新（2026-10-01，P1.1 Hero Coin Visual 正式冻结）：① `e501566a6374cce213be70bf98c922d2621ae83c` 经人工视觉验收与 Unity / Meta XR Simulator 实际观察后，正式定为 **P1.1 Hero Coin Visual = PASS / FROZEN** 的工程基线；② 冻结范围包括 30.0mm × 2.4mm coin body、48 齿 reeded edge、Heads 古典侧颜真实几何浮雕、Tails 银翼飞鸟真实几何浮雕、Satin Silver 材质与连续慢速展示旋转；③ Heads/Tails 主要 relief 继续遵循 **Geometry for form, Normal/AO for micro-detail**，后续不再因高倍率局部瑕疵继续无边界雕刻，只有真实 runtime、正常观看距离可读性或性能 blocker 才允许重开视觉资产；④ Tails wing-root / negative-pocket 等后续局部实验未纳入冻结资产，已回退到 `e501566` 稳定版本；⑤ P1 下一阶段正式转入 **P1.2 Finger Play**，先验证 `Grab → Manipulate → Release → Settle` 的低能量把玩闭环，再依次进行 Perceived Weight A/B 与 Invisible Generosity 原理实验。
 >
@@ -617,6 +619,7 @@ P1 必须同时考虑以下元素，而不只看静态模型：
 | D-042 | 2026-09-27 | `087cbb4` 仅证明 Heads/Tails 大形可读性提高，不代表高级雕塑质感已达标；P1.1 视觉验收继续未通过，禁止基于当前浮雕继续进入 P1.2 | Superseded by D-043 |
 | D-043 | 2026-10-01 | **P1.1 Hero Coin Visual 正式 PASS / FROZEN**；`e501566a6374cce213be70bf98c922d2621ae83c` 为冻结工程基线。Heads、Tails、coin body、48 reeds、Satin Silver 与连续展示旋转仅在真实 runtime、正常观看距离可读性或性能 blocker 出现时允许重开 | Active |
 | D-044 | 2026-10-01 | P1 下一开发阶段为 **P1.2 Finger Play**：先建立可拔除的低能量把玩实验 Harness，验证 `Grab → Manipulate → Release → Settle`；本阶段不进入正式 Toss 状态机、RNG、Catch/Recovery | Active |
+| D-045 | 2026-10-05 | **P1.2A/B Grab + Manipulate 正式 Runtime PASS**；工程 checkpoint 为 `4d3fd065df452713437bdcdab0ff3d1b35ed714b`。已真实验证 `Showcase Spin → Look+Pinch Grab → Hand-owned Manipulate → Release hold-pose`，重复 Play / 连续抓放无新增红色 Error。下一步仅进入 **P1.2C Release / Settle**；不提前实现 Toss、RNG、Flight 或 Catch | Active |
 
 ---
 
@@ -675,34 +678,57 @@ P1.1 HERO COIN VISUAL = PASS / FROZEN
 - 只有真实 runtime blocker、正常观看距离可读性 blocker 或性能 blocker 才允许重开 P1.1 Visual。
 - P0 XR 输入基线、OpenXR、Meta XR Simulator 配置继续冻结。
 
-### 12.3 当前下一步：P1.2 Finger Play
+### 12.3 P1.2 Finger Play 当前状态
 
-P1.2 的核心问题是：**用户把这枚硬币拿在手里低能量把玩时，是否像手里真的有个东西，并愿意无目标地重复玩。**
+```text
+P1.2A/B — GRAB + MANIPULATE = RUNTIME PASS
+P1.2C — RELEASE + SETTLE = NEXT
+```
 
-第一轮只建立一个独立、可拔除的 Finger Play Harness，优先验证：
+P1.2A/B 稳定工程 checkpoint：
 
-1. `Grab`：复用已通过的 hands-first / Look-and-Pinch 输入链，用户可以自然取得硬币；gaze 仍只表示 attention，不触发决定性状态。
-2. `Manipulate`：硬币跟随手部平移与旋转，允许手腕翻转、轻捻等低能量动作；先求稳定、可读，不同时扩张多个花式手势。
-3. `Release`：松手后不进入正式 Toss，不生成 RNG，只保留小幅、可控的惯性表现。
-4. `Settle`：硬币自然收束到稳定状态，可再次抓取；tracking 丢失时按 P1 Failure attitude 静默 wait / settle / recover。
+- Commit：`4d3fd065df452713437bdcdab0ff3d1b35ed714b`。
+- Commit message：`feat(coin): validate finger play grab and manipulation`。
+- 已推送到 `main`，作为后续 P1.2C 的回退基线。
 
-P1.2 工程边界：
+已通过的真实运行链：
 
-- 不进入 `Armed → Flight` 正式 Toss 状态机。
-- 不生成 Heads/Tails RNG，不做结果结算。
-- 不做完整 Catch / Recovery。
-- 不依赖 Scene/Depth/Spatial Mesh。
-- 不修改冻结的 Hero Coin 视觉资产。
-- 所有 follow / damping / angular inertia / settle 参数必须可调，不提前写死“最佳值”。
+1. **Showcase**：进入 Play 后 Hero Coin 正常连续慢速自转。
+2. **Acquire / Grab**：用户 Look + Pinch 后硬币立即停止展示旋转并被取得。
+3. **Manipulate**：gaze 只负责 attention / target acquisition；pinch 表达 intent；选中后硬币由 **selected hand tracking pose** 驱动平移与旋转。
+4. **Release baseline**：松手后硬币不进入 Toss、不继承正式抛掷速度，保持在释放位姿，作为 P1.2C 前的稳定基线。
+5. **Runtime hygiene**：重复 Play 冷启动与连续抓放均无新增红色 Error；`FINGER_PLAY_GRAB_BEGIN / END` 可稳定成对出现。FingerPlay 自身 Rigidbody kinematic velocity warning 已清除。Meta OVRPlugin swapchain / OVRManager focus 生命周期日志不作为项目 blocker，除非伴随真实 XR / interaction failure。
 
-P1.2 验收信号：
+P1.2A/B 已冻结的工程边界：
 
-- 在 Simulator 中可以稳定重复 `Grab → Manipulate → Release → Settle`。
-- 无明显跳变、瞬移、抖动或硬币穿手式视觉破坏。
-- 用户无需提示即可自然重复几次低能量把玩动作。
-- Console 0 新增红色 Error，P0 Look-and-Pinch 基线不回归。
+- 继续复用 P0 已通过的 hands-first / Look-and-Pinch 输入链，不引入应用层 Mouse/Keyboard fallback。
+- **Gaze = attention / acquisition；Pinch = intent；Hand pose = manipulation authority。**
+- 单次只允许一个有效 owner；未知 owner / selection desync 进入 recovery lock，不伪造 owner，不允许 CoinPresenter 与 Interaction SDK 同时写 Transform。
+- `P1_FingerPlaySetup` 必须保持 preflight / frozen-asset validation / rollback 保护；不得覆盖 P1.1 Frozen Hero Coin。
+- P1.1 Hero Coin Visual、P0 XR baseline、Packages、OpenXR / ProjectSettings 继续冻结。
 
-P1.2 通过后按顺序进入：
+### 12.4 当前下一步：P1.2C Release / Settle
+
+P1.2C 只解决一个问题：**用户松手以后，硬币怎样以低能量、可信、可重复的方式从“手中物体”过渡到稳定静止，而不是瞬间像时间冻结，也不是提前变成正式 Toss。**
+
+第一轮只允许建立最小、可拔除的 Release / Settle 实验：
+
+1. **Release**：从当前 hold-pose baseline 出发，允许非常小且受控的线性 / 角向余量；不进入 `Armed → Flight`。
+2. **Settle**：硬币在短时间内自然收束并稳定，可再次 Grab；不得出现爆冲、无限漂移、明显 teleport 或失控旋转。
+3. **A/B 优先**：先比较“完全冻结”与“轻微 release residue / damping settle”两个或极少数变体，不同时引入重量、声音、磁吸、桌面碰撞等多变量。
+4. **Failure attitude**：tracking / selection 异常继续静默 wait / lock / recover，不弹传统错误 UI，不 fail buzz。
+5. **验收仍以真实 Simulator runtime 为准**：静态审计、Setup PASS 或 batch 结果不能替代手工抓放体验。
+
+P1.2C 明确禁止：
+
+- 正式 Toss 状态机。
+- RNG / Heads-Tails 结果。
+- `Armed → Flight`。
+- Catch / Recovery。
+- 为“重量感”提前加入完整 spring / inertia / audio 组合。
+- 修改冻结 Hero Coin 视觉资产。
+
+P1.2C 通过后再进入：
 
 - **P1.3 Perceived Weight**：Rigid Follow vs Spring/Damped Follow，加入 angular inertia / settle，并完成有声 vs 无声 A/B；核心问题是“哪个更像手里真的有个东西”。
 - **P1.4 Invisible Generosity**：比较 0 assistance / subtle / obvious，寻找辅助开始被察觉的阈值。
