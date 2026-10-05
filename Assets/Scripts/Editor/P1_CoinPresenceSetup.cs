@@ -29,15 +29,12 @@ namespace Toss.Editor
             bool forceGenerate = Array.Exists(args, a => a == "-generateP1Presence");
             bool forceAudit = Array.Exists(args, a => a == "-auditP1Presence");
 
-            if (forceGenerate || !File.Exists(ScenePath))
+            if (forceGenerate)
             {
-                Debug.Log("[P1.1 Setup] Generating P1 Coin Presence Scene and Assets...");
-                SetupCoinPresenceScene();
-                if (forceGenerate)
-                {
-                    Debug.Log("[P1.1 Setup] Batch generation completed successfully. Exiting editor.");
-                    EditorApplication.Exit(0);
-                }
+                Debug.Log("[P1 Legacy Setup] Forced generation flag detected. Running legacy setup...");
+                ExecuteLegacySetup();
+                Debug.Log("[P1 Legacy Setup] Batch generation completed successfully. Exiting editor.");
+                EditorApplication.Exit(0);
             }
             else if (forceAudit)
             {
@@ -46,8 +43,21 @@ namespace Toss.Editor
             }
         }
 
-        [MenuItem("Toss/P1 Setup Coin Presence Scene")]
+        [MenuItem("Toss/Legacy/P1 Setup Coin Presence (Disabled - P1.1 Frozen)")]
         public static void SetupCoinPresenceScene()
+        {
+            if (!EditorUtility.DisplayDialog("Warning: P1.1 Hero Coin Frozen",
+                "Running Legacy Coin Presence Setup will overwrite the frozen Hero Coin (Heads/Tails bas-relief FBX and Satin Silver material) with the obsolete procedural baseline.\n\nAre you sure you want to proceed?",
+                "Proceed Anyway", "Cancel (Recommended)"))
+            {
+                Debug.LogWarning("[P1 Legacy Setup] Operation cancelled to preserve frozen P1.1 Hero Coin assets.");
+                return;
+            }
+
+            ExecuteLegacySetup();
+        }
+
+        private static void ExecuteLegacySetup()
         {
             Debug.Log("[P1.1 Setup] Building P1 Coin Presence Baseline Scene and Assets...");
 

@@ -151,6 +151,7 @@ namespace Toss.Diagnostics
 
         private void InspectProjectConfig(DeviceReadinessReport report)
         {
+#if UNITY_EDITOR
             try
             {
                 var projectConfig = OVRProjectConfig.CachedProjectConfig;
@@ -179,6 +180,11 @@ namespace Toss.Diagnostics
             {
                 report.notes.Add($"ProjectConfig inspection notice: {ex.Message}");
             }
+#else
+            report.configuredTargetDevices = "Runtime (Player Build)";
+            report.configuredHandTrackingSupport = "Runtime (Player Build)";
+            report.controllerFreeConfigured = false;
+#endif
         }
 
         private void InspectRuntimeInputEvidence(DeviceReadinessReport report)
