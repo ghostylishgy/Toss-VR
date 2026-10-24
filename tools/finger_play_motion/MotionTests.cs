@@ -17,21 +17,29 @@ namespace Toss.Coin
         private static readonly List<string> failures = new List<string>();
         private static readonly List<string> notes = new List<string>();
 
-        public static int Main()
+        public static int Main(string[] args)
         {
+            if (Array.IndexOf(args, "--normal-trace") >= 0) return NormalTrace();
             Console.WriteLine("P1.2C MOTION SAMPLING OFFLINE REGRESSION | DOUBLES ONLY | NOT ENGINE/SDK/XR VALIDATION | IMPLEMENTATION CHECK, RUNTIME PENDING");
-            Case("zero single sample", ZeroAndSingleSample);
-            Case("stationary", Stationary);
-            Case("constant velocity", ConstantVelocity);
-            Case("non-uniform intervals", NonUniformIntervals);
-            Case("tiny dt threshold", TinyDeltaTime);
-            Case("large dt", LargeDeltaTime);
-            Case("sudden reversal", SuddenReversal);
-            Case("queue boundary", QueueBoundary);
-            Case("quaternion wrap", QuaternionWrap);
-            Case("release clamp", ReleaseClamp);
-            Case("non-finite input", NonFiniteInput);
-            Case("history contamination", HistoryContamination);
+            if (Array.IndexOf(args, "--safety-only") < 0)
+            {
+                Case("zero single sample", ZeroAndSingleSample);
+                Case("stationary", Stationary);
+                Case("constant velocity", ConstantVelocity);
+                Case("non-uniform intervals", NonUniformIntervals);
+                Case("tiny dt threshold", TinyDeltaTime);
+                Case("large dt", LargeDeltaTime);
+                Case("sudden reversal", SuddenReversal);
+                Case("queue boundary", QueueBoundary);
+                Case("quaternion wrap", QuaternionWrap);
+                Case("release clamp", ReleaseClamp);
+                Case("non-finite input", NonFiniteInput);
+                Case("history contamination", HistoryContamination);
+            }
+            Case("H1 invalid time breaks continuity", SafeTimeContinuity);
+            Case("H3 finite release at every stage", SafeRelease);
+            Case("H4 invalid poses never enter queue", SafePoseSamples);
+            Case("H5 non-finite time never enters queue", SafeNonFiniteTime);
             Console.WriteLine("OFFLINE RESULT: {0}/{1} cases passed, assertions={2}, failed assertions={3}, kinematic velocity writes={4}",
                 cases - failedCases, cases, assertions, failedAssertions, globalKinematicWrites);
             foreach (string note in notes) Console.WriteLine("NOTE " + note);
@@ -107,6 +115,156 @@ namespace Toss.Coin
             h.transform.position = position;
             h.transform.rotation = rotation;
             h.UpdateMotionSampling();
+        }
+
+        private static readonly float[] InvalidNumbers = { float.NaN, float.PositiveInfinity, float.NegativeInfinity };
+
+        private static void SafeTimeContinuity()
+        {
+            foreach (float dt in new[] { 0f, -0.001f, float.Epsilon, 1e-8f, 1e-4f })
+            foreach (bool previousMotion in new[] { false, true })
+            {
+                var h = Held();
+                PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+                if (previousMotion) PoseFrame(h, new Vector3(.02f, 0, 0), Quaternion.identity, .02f);
+                Vector3 position = Vector3.zero;
+                for (int i = 1; i <= 100; i++)
+                {
+                    position = new Vector3(i * 1.001e-5f, 0, 0);
+                    PoseFrame(h, position, Quaternion.AxisAngle(Vector3.up, i * .001f), dt);
+                    Check(h._motionSamples.Count == 0, "H1 invalid time clears the old velocity window");
+                }
+                PoseFrame(h, position, h.transform.rotation, 2e-4f);
+                Estimate(h, out Vector3 linear, out Vector3 angular);
+                Vec(linear, 0, 0, 0, 0, "H1 unchanged resume position has no false 5.01 m/s impulse");
+                Vec(angular, 0, 0, 0, 0, "H1 pause rotation has no release impulse");
+                Check(h._currentOwnerId == Owner && h._state == FingerPlayState.Grabbed && !h._coinPresenter.enabled,
+                    "H1 does not alter grab authority or presenter");
+                h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                Vec(h._rigidbody.linearVelocity, 0, 0, 0, 0, "H1 safe release after resuming");
+            }
+        }
+
+        private static void CheckQueueFinite(FingerPlayHarness h)
+        {
+            foreach (MotionSample s in h._motionSamples)
+                Check(Finite(s.LinearVelocity) && Finite(s.AngularVelocity) && !float.IsNaN(s.DeltaTime)
+                    && !float.IsInfinity(s.DeltaTime) && s.DeltaTime > 1e-4f, "only finite samples may enter queue");
+        }
+
+        private static void SafeRelease()
+        {
+            foreach (float bad in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, float.MaxValue })
+            foreach (int channel in new[] { 0, 1 })
+            foreach (int component in new[] { 0, 1, 2 })
+            {
+                var h = Held();
+                var velocity = new Vector3(component == 0 ? bad : 0, component == 1 ? bad : 0, component == 2 ? bad : 0);
+                for (int i = 0; i < 6; i++) h._motionSamples.Enqueue(new MotionSample(
+                    channel == 0 ? velocity : Vector3.zero, channel == 1 ? velocity : Vector3.zero, .02f));
+                h.GetEstimatedVelocities(out Vector3 l, out Vector3 a);
+                Check(Finite(l) && Finite(a), "H3 estimated result must be finite even after weighted-sum overflow");
+                h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                Check(Finite(h._rigidbody.linearVelocity) && Finite(h._rigidbody.angularVelocity), "H3 final write finite");
+                Check(!Audit.Any(e => e == "NON-FINITE-VELOCITY-WRITE"), "H3 no non-finite intermediate Rigidbody write");
+            }
+            foreach (int stage in new[] { 0, 1 })
+            foreach (float bad in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, float.MaxValue })
+            {
+                var h = Held();
+                h._motionSamples.Enqueue(new MotionSample(new Vector3(10, 10, 10), new Vector3(10, 10, 10), .02f));
+                if (stage == 0) { h._linearReleaseScale = bad; h._angularReleaseScale = bad; }
+                else { h._maxLinearReleaseSpeed = bad; h._maxAngularReleaseSpeed = bad; }
+                h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                Check(Finite(h._rigidbody.linearVelocity) && Finite(h._rigidbody.angularVelocity),
+                    "H3 scale/clamp results finite, stage=" + stage + " input=" + bad);
+                Check(!Audit.Any(e => e == "NON-FINITE-VELOCITY-WRITE"), "H3 scale/clamp never reaches body as non-finite");
+                Check(h._state == FingerPlayState.Settling && !h._rigidbody.isKinematic,
+                    "H3 safe zero fallback preserves ResidualSettle semantics");
+            }
+        }
+
+        private static void SafePoseSamples()
+        {
+            foreach (float bad in InvalidNumbers)
+            foreach (int component in new[] { 0, 1, 2, 3, 4, 5, 6 })
+            foreach (bool seed in new[] { false, true })
+            {
+                var h = Held();
+                if (!seed)
+                {
+                    PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+                    PoseFrame(h, new Vector3(.005f, 0, 0), Quaternion.identity, .02f);
+                }
+                var p = new Vector3(component == 0 ? bad : 0, component == 1 ? bad : 0, component == 2 ? bad : 0);
+                var q = new Quaternion(component == 3 ? bad : 0, component == 4 ? bad : 0,
+                    component == 5 ? bad : 0, component == 6 ? bad : 1);
+                PoseFrame(h, p, q, .02f);
+                Check(h._motionSamples.Count == 0 && !h._hasPrevSample, "H4 reject invalid pose and drop contaminated segment");
+                CheckQueueFinite(h);
+                Check(h._currentOwnerId == Owner && !h._coinPresenter.enabled, "H4 authority unchanged");
+                PoseFrame(h, new Vector3(1, 0, 0), Quaternion.identity, .02f);
+                Check(h._motionSamples.Count == 0 && h._hasPrevSample, "H4 first valid pose only reseeds");
+                PoseFrame(h, new Vector3(1.005f, 0, 0), Quaternion.identity, .02f);
+                Estimate(h, out Vector3 l, out Vector3 a);
+                Vec(l, .25, 0, 0, 2e-5, "H4 next finite sample has no bad-baseline contamination");
+                CheckQueueFinite(h);
+            }
+            var overflow = Held();
+            PoseFrame(overflow, new Vector3(-float.MaxValue, 0, 0), Quaternion.identity, .02f);
+            PoseFrame(overflow, new Vector3(float.MaxValue, 0, 0), Quaternion.identity, .02f);
+            Check(overflow._motionSamples.Count == 0 && !overflow._hasPrevSample, "H4 reject finite-input subtraction overflow");
+            var angularOverflow = Held();
+            PoseFrame(angularOverflow, new Vector3(), new Quaternion(float.Epsilon, 0, 0, 0), .02f);
+            PoseFrame(angularOverflow, new Vector3(), Quaternion.identity, .02f);
+            CheckQueueFinite(angularOverflow);
+        }
+
+        private static void SafeNonFiniteTime()
+        {
+            foreach (float bad in InvalidNumbers)
+            foreach (bool seed in new[] { false, true })
+            {
+                var h = Held();
+                if (!seed)
+                {
+                    PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+                    PoseFrame(h, new Vector3(.02f, 0, 0), Quaternion.identity, .02f);
+                }
+                PoseFrame(h, new Vector3(4, 0, 0), Quaternion.identity, bad);
+                Check(h._motionSamples.Count == 0 && !h._hasPrevSample, "H5 reject NaN and both infinities before seeding");
+                CheckQueueFinite(h);
+                h.GetEstimatedVelocities(out Vector3 l, out Vector3 a);
+                Vec(l, 0, 0, 0, 0, "H5 invalid dt cannot retain stale release velocity");
+                PoseFrame(h, new Vector3(4, 0, 0), Quaternion.identity, .02f);
+                Check(h._motionSamples.Count == 0, "H5 no cross-gap displacement");
+            }
+        }
+
+        private static int NormalTrace()
+        {
+            foreach (int hz in new[] { 30, 60, 90, 120, 144, 240 })
+            foreach (ReleaseProfile profile in new[] { ReleaseProfile.Freeze, ReleaseProfile.ResidualSettle })
+            foreach (int motion in new[] { 0, 1, 2, 3 })
+            {
+                Audit.Reset();
+                var h = Held(profile);
+                double t = 0;
+                for (int i = 0; i <= 128; i++)
+                {
+                    float dt = (float)((motion == 3 ? (i % 2 == 0 ? .5 : 1.5) : 1) / hz);
+                    t += dt;
+                    double x = motion == 0 ? 0 : motion == 2 ? Math.Sin(t * 3) * .04 : t * .3;
+                    PoseFrame(h, new Vector3((float)x, (float)(x * .4), (float)(-x * .2)),
+                        Quaternion.AxisAngle(Axis(1, 2, -1), motion == 0 ? .7f : (float)(t * 2)), dt);
+                    h.GetEstimatedVelocities(out Vector3 l, out Vector3 a);
+                    Console.WriteLine("TRACE {0} {1} {2} {3} {4} {5} {6}", hz, profile, motion, i, l, a, h._motionSamples.Count);
+                }
+                h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                Console.WriteLine("RELEASE {0} {1} {2} {3} {4} {5} {6}", hz, profile, motion,
+                    h._rigidbody.linearVelocity, h._rigidbody.angularVelocity, h._state, h._rigidbody.isKinematic);
+            }
+            return failures.Count == 0 ? 0 : 1;
         }
 
         private static MotionSample LastSample(FingerPlayHarness h)
@@ -280,47 +438,28 @@ namespace Toss.Coin
             PoseFrame(h, start, Quaternion.identity, 0.02f);
             foreach (float dt in new[] { 1e-5f, 1e-8f, 1e-15f, 0f, -0.001f, float.NaN })
             {
-                int count = h._motionSamples.Count;
                 PoseFrame(h, start + new Vector3(0.001f, 0, 0), Quaternion.identity, dt);
-                Check(h._motionSamples.Count == count, "dt=" + dt + " stays below the sampling threshold");
-                Vec(h._prevSamplePosition, start.x, start.y, start.z, 0, "dt=" + dt + " does not refresh the previous position");
+                Check(h._motionSamples.Count == 0 && !h._hasPrevSample, "invalid dt breaks sampling continuity");
             }
 
-            // H1: the guard rejects dt <= 1e-4 but never refreshes _prevSample*, so displacement accumulated
-            // during rejected frames is divided by the next accepted dt alone.
             var stale = Held();
             PoseFrame(stale, Vector3.zero, Quaternion.identity, 0.02f);
             for (int i = 1; i <= 100; i++)
                 PoseFrame(stale, new Vector3(1e-5f * i, 0, 0), Quaternion.identity, 0f);
-            Check(stale._motionSamples.Count == 0, "H1 dt=0 frames never sample");
-            Vec(stale._prevSamplePosition, 0, 0, 0, 0, "H1 previous pose stays at the seed while the transform moved 1e-3 m");
+            Check(stale._motionSamples.Count == 0, "dt=0 frames never sample");
             PoseFrame(stale, new Vector3(1.001e-3f, 0, 0), Quaternion.identity, 2e-4f);
-            Check(stale._motionSamples.Count == 1, "H1 the first accepted frame produces one sample");
-            Vector3 l, a;
-            Estimate(stale, out l, out a);
-            Near(l.x, 1.001e-3 / 2e-4, 1e-3, "H1 divides the whole stale displacement by the single accepted dt");
-            Check(l.x > 4.0, "H1 reports " + l.x + " m/s for a frame whose own movement was zero");
-            notes.Add("H1 UpdateMotionSampling returns without sampling when dt <= 1e-4, so _prevSamplePosition goes stale. "
-                + "100 frames of 1e-5 m at dt=0 then one accepted dt=2e-4 frame reports "
-                + l.x.ToString("F2") + " m/s although that frame itself moved 0 m. OnGrabEnd caps the consequence at "
-                + "_maxLinearReleaseSpeed=" + stale._maxLinearReleaseSpeed + " m/s and _maxAngularReleaseSpeed="
-                + stale._maxAngularReleaseSpeed + " rad/s, so the risk is a wrong-direction, saturated release rather than a runaway.");
+            Check(stale._motionSamples.Count == 0 && stale._hasPrevSample, "resume frame only seeds");
+            Estimate(stale, out Vector3 l, out Vector3 a);
+            Vec(l, 0, 0, 0, 0, "no stale displacement in estimate");
+            Vec(a, 0, 0, 0, 0, "no stale angular impulse");
 
-            // H5: dt is never checked for finiteness, and +Infinity passes the threshold comparison.
             var inf = Held();
             PoseFrame(inf, Vector3.zero, Quaternion.identity, 0.02f);
             PoseFrame(inf, new Vector3(0.001f, 0, 0), Quaternion.identity, 0.05f);
-            int before = inf._motionSamples.Count;
             PoseFrame(inf, new Vector3(0.002f, 0, 0), Quaternion.identity, float.PositiveInfinity);
-            Check(inf._motionSamples.Count == before + 1, "H5 an infinite dt is accepted, not rejected");
-            MotionSample poison = LastSample(inf);
-            Check(float.IsPositiveInfinity(poison.DeltaTime), "H5 the infinite dt is stored in the queue");
-            Vec(poison.LinearVelocity, 0, 0, 0, 0, "H5 the infinite-dt sample carries zero velocity");
+            Check(inf._motionSamples.Count == 0 && !inf._hasPrevSample, "infinite dt drops the segment");
             Estimate(inf, out l, out a);
-            Check(l.x < 0.02f, "H5 the zero-velocity sample dilutes the weighted estimate to " + l.x + " m/s");
-            notes.Add("H5 dt is compared but never validated as finite. A positive-infinity dt frame is sampled as a "
-                + "zero-velocity sample and stays in the six-frame queue, under-estimating release velocity for up to "
-                + "five subsequent frames.");
+            Vec(l, 0, 0, 0, 0, "no stale estimate after infinite dt");
         }
 
         private static void LargeDeltaTime()
@@ -580,82 +719,51 @@ namespace Toss.Coin
                 var h = Held();
                 PoseFrame(h, Vector3.zero, Quaternion.identity, 0.02f);
                 PoseFrame(h, bad, Quaternion.identity, 0.02f);
-                Vector3 l, a;
-                h.GetEstimatedVelocities(out l, out a);
-                bool estimateFinite = Finite(l) && Finite(a);
-                notes.Add("H3 non-finite position " + bad + " gave linear " + l + " and angular " + a);
-                if (estimateFinite)
-                {
-                    notes.Add("H3 configuration masked non-finite input before the estimate; verifying release anyway");
-                    continue;
-                }
+                Estimate(h, out Vector3 l, out Vector3 a);
+                Vec(l, 0, 0, 0, 0, "invalid pose drops estimate");
+                Check(h._motionSamples.Count == 0 && !h._hasPrevSample, "invalid pose cannot seed or enqueue");
                 h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
-                Check(!Finite(h._rigidbody.linearVelocity),
-                    "H3 confirmed: the non-finite estimate passes scaling and clamping into the Rigidbody write");
-                Check(Audit.Any(x => x == "NON-FINITE-VELOCITY-WRITE"), "H3 non-finite write recorded");
+                Vec(h._rigidbody.linearVelocity, 0, 0, 0, 0, "invalid pose releases at zero speed");
+                Check(!Audit.Any(x => x == "NON-FINITE-VELOCITY-WRITE"), "no non-finite write");
             }
-            notes.Add("H3 OnGrabEnd has no finite guard: Vector3.ClampMagnitude and the manual angular guard both let "
-                + "NaN/Infinity through because NaN comparisons are false, so a non-finite transform reaches Rigidbody "
-                + "velocity. Reported as a production hazard; not fixed in this round.");
 
             var angular = Held();
             PoseFrame(angular, Vector3.zero, new Quaternion(float.NaN, 0, 0, 1), 0.02f);
             PoseFrame(angular, Vector3.zero, new Quaternion(float.NaN, 0f, 0.5f, 0.5f), 0.02f);
-            Vector3 al, aa;
-            angular.GetEstimatedVelocities(out al, out aa);
-            Check(!float.IsNaN(aa.x) && !float.IsNaN(aa.y) && !float.IsNaN(aa.z),
-                "NaN rotation cannot yield a NaN angular sample because the axis guard rejects it");
-            notes.Add("H3 asymmetry: the angular path is guarded by `axis.sqrMagnitude > 1e-6f && !float.IsNaN(axis.x)` "
-                + "(the magnitude test alone already rejects a NaN axis), while the linear path has no equivalent guard.");
+            Estimate(angular, out Vector3 al, out Vector3 aa);
+            Vec(aa, 0, 0, 0, 0, "invalid rotations have zero estimate");
+            Check(angular._motionSamples.Count == 0 && !angular._hasPrevSample, "invalid rotation never seeds");
 
             var afterBad = Held();
-            Vector3 rl, ra;
             PoseFrame(afterBad, Vector3.zero, Quaternion.identity, 0.02f);
             PoseFrame(afterBad, new Vector3(float.NaN, 0, 0), Quaternion.identity, 0.02f);
-            Check(!Finite(LastSample(afterBad).LinearVelocity), "H4 the non-finite frame itself samples as non-finite");
+            Check(afterBad._motionSamples.Count == 0, "bad frame is discarded");
             PoseFrame(afterBad, new Vector3(0.005f, 0, 0), Quaternion.identity, 0.02f);
-            Check(!Finite(LastSample(afterBad).LinearVelocity),
-                "H4 the first clean frame is still poisoned because _prevSamplePosition held the bad pose");
+            Check(afterBad._motionSamples.Count == 0 && afterBad._hasPrevSample, "first clean frame reseeds");
             PoseFrame(afterBad, new Vector3(0.01f, 0, 0), Quaternion.identity, 0.02f);
-            Check(Finite(LastSample(afterBad).LinearVelocity), "H4 sampling self-heals once the previous pose is finite");
-            afterBad.GetEstimatedVelocities(out rl, out ra);
-            Check(!Finite(rl), "H4 the weighted estimate stays non-finite while either poisoned sample is queued");
-            for (int i = 4; i <= 10; i++) PoseFrame(afterBad, new Vector3(0.005f * i, 0, 0), Quaternion.identity, 0.02f);
-            afterBad.GetEstimatedVelocities(out rl, out ra);
-            notes.Add("H4 poisoning: one non-finite frame poisons two samples; FIFO eviction clears them without a reset "
-                + "(estimate after ten clean frames = " + rl + ")");
-            Check(Finite(rl), "H4 after six further samples the poisoned entries are evicted and the estimate recovers");
-            Check(Math.Abs(rl.x - 0.25) < 1e-5, "recovered estimate reports the true speed again");
-
+            Estimate(afterBad, out Vector3 rl, out Vector3 ra);
+            Vec(rl, .25, 0, 0, 1e-5, "next clean frame immediately has correct speed");
+            for (int i = 3; i <= 10; i++) PoseFrame(afterBad, new Vector3(0.005f * i, 0, 0), Quaternion.identity, 0.02f);
+            Estimate(afterBad, out rl, out ra);
+            Vec(rl, .25, 0, 0, 1e-5, "sustained recovered trajectory");
             afterBad.OnGrabBegin(new PointerEvent(Owner, PointerEventType.Select, new Pose()));
-            Check(afterBad._motionSamples.Count == 0 && !afterBad._hasPrevSample, "a fresh grab reseeds the sampler");
-            PoseFrame(afterBad, new Vector3(0.25f * 0.02f, 0, 0), Quaternion.identity, 0.02f);
-            Check(afterBad._motionSamples.Count == 0, "the frame after a grab only seeds");
-            PoseFrame(afterBad, new Vector3(0.25f * 0.04f, 0, 0), Quaternion.identity, 0.02f);
-            afterBad.GetEstimatedVelocities(out rl, out ra);
-            Check(Finite(rl), "after reseeding, sampling is finite again");
-            Vec(rl, 0.25, 0, 0, 1e-5, "post-reseed estimate reports the true speed");
+            Check(afterBad._motionSamples.Count == 0 && !afterBad._hasPrevSample, "fresh grab clears history");
 
-            // A grab that seeds a non-finite transform costs one sample, then recovers; a transform that stays
-            // non-finite (tracking lost) keeps every sample and the release write non-finite for the whole grab.
             var badSeed = Held();
             PoseFrame(badSeed, new Vector3(float.PositiveInfinity, 0, 0), Quaternion.identity, 0.02f);
-            Check(badSeed._hasPrevSample && !Finite(badSeed._prevSamplePosition), "H4 a non-finite pose can become the seed");
+            Check(!badSeed._hasPrevSample, "invalid initial pose cannot seed");
             PoseFrame(badSeed, new Vector3(0.005f, 0, 0), Quaternion.identity, 0.02f);
-            Check(!Finite(LastSample(badSeed).LinearVelocity), "H4 the first frame after a bad seed is non-finite");
+            Check(badSeed._motionSamples.Count == 0, "first valid seed costs no poisoned sample");
             PoseFrame(badSeed, new Vector3(0.01f, 0, 0), Quaternion.identity, 0.02f);
-            Check(Finite(LastSample(badSeed).LinearVelocity), "H4 a bad seed costs exactly one sample, then sampling recovers");
+            Check(Finite(LastSample(badSeed).LinearVelocity), "sample after valid seed is finite");
 
             var stuck = Held();
             PoseFrame(stuck, Vector3.zero, Quaternion.identity, 0.02f);
             for (int i = 1; i <= 10; i++) PoseFrame(stuck, new Vector3(float.NaN, 0, 0), Quaternion.identity, 0.02f);
-            stuck.GetEstimatedVelocities(out rl, out ra);
-            Check(!Finite(rl), "H4 confirmed: while the transform stays non-finite every sample and the estimate do too");
+            Check(stuck._motionSamples.Count == 0 && !stuck._hasPrevSample, "repeated invalid poses never enqueue");
             stuck.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
-            Check(!Finite(stuck._rigidbody.linearVelocity), "H4 a stuck non-finite transform reaches the Rigidbody on release");
-            notes.Add("H4 lifetime: a single non-finite frame costs at most two poisoned samples and FIFO eviction clears "
-                + "them within six frames, so a finite transform always self-heals. There is no finite-value guard, so a "
-                + "transform that stays non-finite releases with a non-finite Rigidbody velocity.");
+            Vec(stuck._rigidbody.linearVelocity, 0, 0, 0, 0, "persistent invalid pose releases safely");
+            Check(!Audit.Any(x => x == "NON-FINITE-VELOCITY-WRITE"), "persistent invalid pose never writes non-finite velocity");
         }
 
         private static void HistoryContamination()

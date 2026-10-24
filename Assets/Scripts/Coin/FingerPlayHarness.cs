@@ -663,14 +663,14 @@ namespace Toss.Coin
 
                 GetEstimatedVelocities(out Vector3 estLinVel, out Vector3 estAngVel);
 
-                Vector3 scaledLinVel = estLinVel * _linearReleaseScale;
-                Vector3 scaledAngVel = estAngVel * _angularReleaseScale;
+                Vector3 scaledLinVel = FiniteVelocityOrZero(estLinVel * _linearReleaseScale);
+                Vector3 scaledAngVel = FiniteVelocityOrZero(estAngVel * _angularReleaseScale);
 
-                Vector3 clampedLinVel = Vector3.ClampMagnitude(scaledLinVel, _maxLinearReleaseSpeed);
+                Vector3 clampedLinVel = FiniteVelocityOrZero(Vector3.ClampMagnitude(scaledLinVel, _maxLinearReleaseSpeed));
                 float angSpeed = scaledAngVel.magnitude;
-                Vector3 clampedAngVel = (angSpeed > _maxAngularReleaseSpeed)
+                Vector3 clampedAngVel = FiniteVelocityOrZero((angSpeed > _maxAngularReleaseSpeed)
                     ? (scaledAngVel.normalized * _maxAngularReleaseSpeed)
-                    : scaledAngVel;
+                    : scaledAngVel);
 
                 // Dynamic Rigidbody switch: set dynamic BEFORE writing velocity (never write velocity to kinematic)
                 if (_rigidbody != null)
@@ -679,8 +679,8 @@ namespace Toss.Coin
                     _rigidbody.useGravity = false;
                     _rigidbody.linearDamping = _linearDamping;
                     _rigidbody.angularDamping = _angularDamping;
-                    _rigidbody.linearVelocity = clampedLinVel;
-                    _rigidbody.angularVelocity = clampedAngVel;
+                    _rigidbody.linearVelocity = FiniteVelocityOrZero(clampedLinVel);
+                    _rigidbody.angularVelocity = FiniteVelocityOrZero(clampedAngVel);
                 }
 
                 _settleTimer = 0f;
@@ -694,11 +694,44 @@ namespace Toss.Coin
             }
         }
 
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static bool IsFiniteVector(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFiniteRotation(Quaternion value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z) && IsFinite(value.w);
+        }
+
+        private static Vector3 FiniteVelocityOrZero(Vector3 velocity)
+        {
+            return IsFiniteVector(velocity) ? velocity : Vector3.zero;
+        }
+
+        private void ResetMotionSampling()
+        {
+            _motionSamples.Clear();
+            _hasPrevSample = false;
+        }
+
         private void UpdateMotionSampling()
         {
             Vector3 currentPos = transform.position;
             Quaternion currentRot = transform.rotation;
             float dt = Time.deltaTime;
+
+            if (!IsFinite(dt) || dt <= 1e-4f || !IsFiniteVector(currentPos) || !IsFiniteRotation(currentRot))
+            {
+                // Break continuity so paused or invalid tracking cannot become a release impulse.
+                ResetMotionSampling();
+                return;
+            }
 
             if (!_hasPrevSample)
             {
@@ -709,28 +742,40 @@ namespace Toss.Coin
                 return;
             }
 
-            if (dt > 1e-4f)
+            Vector3 instLinearVel = (currentPos - _prevSamplePosition) / dt;
+            Quaternion deltaRot = currentRot * Quaternion.Inverse(_prevSampleRotation);
+            if (!IsFiniteVector(instLinearVel) || !IsFiniteRotation(deltaRot))
             {
-                Vector3 instLinearVel = (currentPos - _prevSamplePosition) / dt;
-
-                Quaternion deltaRot = currentRot * Quaternion.Inverse(_prevSampleRotation);
-                deltaRot.ToAngleAxis(out float angleDeg, out Vector3 axis);
-                if (angleDeg > 180f) angleDeg -= 360f;
-                Vector3 instAngularVel = Vector3.zero;
-                if (axis.sqrMagnitude > 1e-6f && !float.IsNaN(axis.x))
-                {
-                    instAngularVel = axis.normalized * (angleDeg * Mathf.Deg2Rad / dt);
-                }
-
-                if (_motionSamples.Count >= MaxMotionSamples)
-                {
-                    _motionSamples.Dequeue();
-                }
-                _motionSamples.Enqueue(new MotionSample(instLinearVel, instAngularVel, dt));
-
-                _prevSamplePosition = currentPos;
-                _prevSampleRotation = currentRot;
+                ResetMotionSampling();
+                return;
             }
+
+            deltaRot.ToAngleAxis(out float angleDeg, out Vector3 axis);
+            if (!IsFinite(angleDeg) || !IsFiniteVector(axis))
+            {
+                ResetMotionSampling();
+                return;
+            }
+            if (angleDeg > 180f) angleDeg -= 360f;
+            Vector3 instAngularVel = Vector3.zero;
+            if (axis.sqrMagnitude > 1e-6f && !float.IsNaN(axis.x))
+            {
+                instAngularVel = axis.normalized * (angleDeg * Mathf.Deg2Rad / dt);
+            }
+            if (!IsFiniteVector(instAngularVel))
+            {
+                ResetMotionSampling();
+                return;
+            }
+
+            if (_motionSamples.Count >= MaxMotionSamples)
+            {
+                _motionSamples.Dequeue();
+            }
+            _motionSamples.Enqueue(new MotionSample(instLinearVel, instAngularVel, dt));
+
+            _prevSamplePosition = currentPos;
+            _prevSampleRotation = currentRot;
         }
 
         private void GetEstimatedVelocities(out Vector3 linearVel, out Vector3 angularVel)
@@ -758,8 +803,8 @@ namespace Toss.Coin
 
             if (totalWeight > 0f)
             {
-                linearVel = weightedLinearSum / totalWeight;
-                angularVel = weightedAngularSum / totalWeight;
+                linearVel = FiniteVelocityOrZero(weightedLinearSum / totalWeight);
+                angularVel = FiniteVelocityOrZero(weightedAngularSum / totalWeight);
             }
             else
             {

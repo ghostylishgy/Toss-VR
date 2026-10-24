@@ -28,6 +28,7 @@ HERE = Path(__file__).resolve().parent
 METHODS = ["UpdateMotionSampling", "GetEstimatedVelocities", "GetSelectingPointsCount", "OnGrabBegin",
            "OnGrabMove", "OnGrabCancel", "OnGrabEnd", "UpdateSettlingPhysics", "CompleteSettle",
            "EnterInteractionAuthority", "ExitInteractionAuthority", "Update", "FixedUpdate"]
+HELPERS = ["IsFinite", "IsFiniteVector", "IsFiniteRotation", "FiniteVelocityOrZero", "ResetMotionSampling"]
 
 
 def digest(path):
@@ -62,7 +63,7 @@ def fixture_source(snippets):
            'namespace Toss.Coin\n{\n')
     out += snippets['ReleaseProfile'][2] + '\n' + snippets['FingerPlayState'][2] + '\n'
     out += '    public partial class FingerPlayHarness : MonoBehaviour\n    {\n' + snippets['fields'][2]
-    out += '\n\n'.join(snippets[name][2] for name in METHODS)
+    out += '\n\n'.join(snippets[name][2] for name in METHODS + HELPERS if name in snippets)
     out += '\n    }\n}\n'
     return out
 
@@ -72,6 +73,9 @@ def main():
     parser.add_argument('--unity-editor', required=True, type=Path,
                         help='Installed Editor directory (the one containing Unity.exe). Unity itself is never started.')
     parser.add_argument('--skip-defect-injection', action='store_true')
+    parser.add_argument('--safety-only', action='store_true')
+    parser.add_argument('--source-revision', help='Read production from git; use --skip-defect-injection for old revisions.')
+    parser.add_argument('--compare-normal', type=Path, help='Compare against a saved pre-fix normal.run.log.')
     args = parser.parse_args()
 
     data = args.unity_editor.resolve() / 'Data'
@@ -88,19 +92,27 @@ def main():
     tracked = [p for p in subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT, text=True).split('\0') if p]
     tracked_before = {p: digest(ROOT / p) for p in tracked}
 
-    text = PRODUCTION.read_text(encoding='utf-8-sig')
+    source_bytes = (subprocess.check_output(['git', 'show', args.source_revision + ':' + PRODUCTION.relative_to(ROOT).as_posix()], cwd=ROOT)
+                    if args.source_revision else PRODUCTION.read_bytes())
+    text = source_bytes.decode('utf-8-sig').replace('\r\n', '\n')
     snippets = {}
     for enum in ('ReleaseProfile', 'FingerPlayState'):
         snippets[enum] = block(text, rf'^[ \t]*public enum {enum}\b')
     for method in METHODS:
         snippets[method] = block(text, rf'^[ \t]*(?:private|public) (?:void|int) {method}\(')
+    for helper in HELPERS:
+        pattern = rf'^[ \t]*private (?:static )?(?:void|bool|Vector3) {helper}\('
+        if re.search(pattern, mask(text), re.M):
+            snippets[helper] = block(text, pattern)
     start, stop = text.index('        [Header("Component References")]'), text.index('        private void Awake()')
     snippets['fields'] = (start, stop, text[start:stop])
 
     manifest = {'status': ['P1.2C MOTION SAMPLING OFFLINE REGRESSION', 'ISOLATED TEST ONLY',
                            'PRODUCTION BEHAVIOUR UNCHANGED', 'RUNTIME VALIDATION PENDING'],
                 'production': {'path': str(PRODUCTION), 'sha256_before': before_production,
-                               'methods_extracted': METHODS, 'verbatim': True},
+                               'source_revision': args.source_revision, 'extracted_sha256': hashlib.sha256(source_bytes).hexdigest(),
+                               'methods_extracted': [n for n in METHODS + HELPERS if n in snippets], 'verbatim_except_line_endings': True},
+                'test_source_sha256': {p.name: digest(p) for p in (HERE / 'MotionTests.cs', HERE / 'MotionDoubles.cs', Path(__file__))},
                 'backup': {'path': str(BACKUP), 'sha256_before': before_backup}, 'limits': [
                     'No Unity/Oculus assemblies, native calls, physics integration or XR input.',
                     'Unity value types and Rigidbody are deterministic managed doubles.',
@@ -116,13 +128,14 @@ def main():
     def write(path, content):
         Path(path).write_text(content, encoding='utf-8', newline='\n')
 
-    def step(label, command):
+    def step(label, command, quiet=False):
         result = subprocess.run([str(item) for item in command], cwd=out, env=env,
                                 capture_output=True, text=True, timeout=180)
         text_out = result.stdout + result.stderr
         write(out / (label + '.log'), text_out)
         print(f'{label}: exit={result.returncode}')
-        print(text_out, end='')
+        if not quiet:
+            print(text_out, end='')
         manifest['steps'].append({'label': label, 'exit_code': result.returncode})
         return result.returncode, text_out
 
@@ -136,7 +149,8 @@ def main():
                                               fixture, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs'])
         if code:
             return None
-        return step(label + '.run', [mono, out / (label + '.Tests.exe')])
+        return step(label + '.run', [mono, out / (label + '.Tests.exe'),
+                                    *(['--safety-only'] if args.safety_only else [])])
 
     baseline = fixture_source(snippets)
     verified = build('baseline', baseline)
@@ -147,15 +161,31 @@ def main():
         manifest['baseline_totals'] = dict(zip(('passed', 'total', 'assertions', 'failed_assertions'),
                                                map(int, match.groups()))) if match else None
 
+    if verified is not None:
+        trace_code, trace = step('normal.run', [mono, out / 'baseline.Tests.exe', '--normal-trace'], quiet=True)
+        manifest['normal_trace'] = {'exit_code': trace_code, 'sha256': digest(out / 'normal.run.log'),
+                                    'lines': len(trace.splitlines())}
+        success = success and trace_code == 0
+        if args.compare_normal:
+            identical = (out / 'normal.run.log').read_bytes() == args.compare_normal.read_bytes()
+            manifest['normal_trace']['reference'] = str(args.compare_normal)
+            manifest['normal_trace']['identical'] = identical
+            print('NORMAL TRAJECTORIES IDENTICAL=' + str(identical))
+            success = success and identical
+
     mutations = [
-        ('tiny-dt gate removed', 'UpdateMotionSampling', '            if (dt > 1e-4f)', '            if (dt > -1f)',
-         'tiny dt threshold'),
+        ('tiny-dt gate removed', 'UpdateMotionSampling', 'dt <= 1e-4f', 'dt < 0f', 'H1 invalid time'),
+        ('non-finite dt accepted', 'UpdateMotionSampling', '!IsFinite(dt) || ', '', 'H5 non-finite time'),
+        ('invalid pose accepted', 'UpdateMotionSampling',
+         ' || !IsFiniteVector(currentPos) || !IsFiniteRotation(currentRot)', '', 'H4 invalid poses'),
+        ('finite velocity fallback removed', 'FiniteVelocityOrZero',
+         'return IsFiniteVector(velocity) ? velocity : Vector3.zero;', 'return velocity;', 'H3 finite release'),
         ('newest weighting flattened', 'GetEstimatedVelocities', '                float weight = index;',
          '                float weight = 1;', 'non-uniform intervals'),
         ('Cancel keeps sampling queue', 'OnGrabCancel', '            _motionSamples.Clear();\n', '',
          'history contamination'),
-        ('>180 fold threshold raised', 'UpdateMotionSampling', '                if (angleDeg > 180f) angleDeg -= 360f;',
-         '                if (angleDeg > 1800f) angleDeg -= 360f;', 'quaternion wrap'),
+        ('>180 fold threshold raised', 'UpdateMotionSampling', 'if (angleDeg > 180f) angleDeg -= 360f;',
+         'if (angleDeg > 1800f) angleDeg -= 360f;', 'quaternion wrap'),
         ('dynamic switch omitted before velocity write', 'OnGrabEnd',
          '                    _rigidbody.isKinematic = false;\n                    _rigidbody.useGravity = false;',
          '                    _rigidbody.useGravity = false;', 'release clamp'),
@@ -195,7 +225,7 @@ def main():
     print('MANIFEST ' + str(out / 'manifest.json'))
     print('OFFLINE ONLY: doubles are not Unity, not the Oculus Interaction SDK and not XR input.')
     print('P1.2C IMPLEMENTATION CHECK | RUNTIME VALIDATION PENDING')
-    return 0 if success else 1
+    return 0 if manifest['success'] else 1
 
 
 if __name__ == '__main__':
