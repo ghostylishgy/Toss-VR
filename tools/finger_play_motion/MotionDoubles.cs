@@ -12,11 +12,14 @@ namespace TossMotionAudit
     {
         public static readonly List<string> Events = new List<string>();
         public static int KinematicVelocityWrites, WarningLogs;
+        public static Action<string> OnLog;
         public static void Add(string text) { Events.Add(text); }
         public static void Reset()
         {
             Events.Clear(); KinematicVelocityWrites = WarningLogs = 0;
+            OnLog = null;
             UnityEngine.Application.isPlaying = true;
+            UnityEngine.Time.frameCount = 0;
             UnityEngine.Time.deltaTime = 0.02f; UnityEngine.Time.fixedDeltaTime = 0.02f;
         }
         public static bool Any(Func<string, bool> predicate) { return Events.Any(predicate); }
@@ -31,14 +34,26 @@ namespace UnityEngine
     public class RangeAttribute : Attribute { public RangeAttribute(float a, float b) { } }
     public class DisallowMultipleComponent : Attribute { }
     public enum RigidbodyInterpolation { None, Interpolate }
-    public class GameObject { public string name = "test-object"; }
-
-    public class MonoBehaviour
+    public class Object
     {
-        // Fixture-only activity flag: replaces Unity lifecycle, not a simulation of it.
-        public bool isActiveAndEnabled = true;
-        public Transform transform = new Transform();
+        private static int nextId;
+        private readonly int id = ++nextId;
+        public int GetInstanceID() => id;
     }
+    public class GameObject : Object { public string name = "test-object"; public bool activeInHierarchy = true; }
+    public class Component : Object
+    {
+        public GameObject gameObject = new GameObject();
+        public Transform transform = new Transform();
+        public object[] Children = Array.Empty<object>();
+        public T[] GetComponentsInChildren<T>(bool includeInactive) => Children.OfType<T>().ToArray();
+    }
+    public class Behaviour : Component
+    {
+        public bool enabled = true;
+        public bool isActiveAndEnabled { get => enabled && gameObject.activeInHierarchy; set => enabled = value; }
+    }
+    public class MonoBehaviour : Behaviour { }
 
     // Float component arithmetic mirrors Unity's managed Vector3 surface used by production code.
     public struct Vector3
@@ -130,7 +145,7 @@ namespace UnityEngine
     }
 
     public static class Application { public static bool isPlaying = true; }
-    public static class Time { public static float deltaTime = 0.02f, fixedDeltaTime = 0.02f; }
+    public static class Time { public static float deltaTime = 0.02f, fixedDeltaTime = 0.02f; public static int frameCount; }
     public static class Mathf
     {
         public const float Deg2Rad = (float)Math.PI / 180;
@@ -144,7 +159,7 @@ namespace UnityEngine
 
     public static class Debug
     {
-        public static void Log(string s) { Audit.Add("log:" + s); }
+        public static void Log(string s) { Audit.Add("log:" + s); Audit.OnLog?.Invoke(s); }
         public static void LogWarning(string s) { Audit.WarningLogs++; Audit.Add("warning:" + s); }
     }
 
@@ -186,10 +201,57 @@ namespace Oculus.Interaction
 
     // Shape-only stand-in: exposes the real SDK collection type (List<Pose> SelectingPoints) that
     // production reads. No SDK behaviour is executed, so nothing here validates real selection semantics.
-    public class Grabbable
+    public class Grabbable : IPointableElement
     {
         public List<UnityEngine.Pose> SelectingPoints { get; set; } = new List<UnityEngine.Pose>();
     }
+    public interface IPointableElement { }
+    public interface IInteractorView { int Identifier { get; } }
+    public interface IInteractableView { IEnumerable<IInteractorView> SelectingInteractorViews { get; } }
+    public class TestInteractor : UnityEngine.MonoBehaviour, IInteractorView
+    {
+        public int Identifier { get; set; }
+    }
+    public class TestInteractable : IInteractableView
+    {
+        public IPointableElement PointableElement { get; set; }
+        public IEnumerable<IInteractorView> SelectingInteractorViews { get; set; } = Array.Empty<IInteractorView>();
+    }
+    public class GazeInteractor : TestInteractor { }
+    public class GazeInteractable : TestInteractable { }
+}
+
+namespace Oculus.Interaction.Input
+{
+    public interface IHand { bool IsConnected { get; } bool IsHighConfidence { get; } bool IsTrackedDataValid { get; } }
+    public class UnreadableHand : UnityEngine.MonoBehaviour, IHand
+    {
+        public bool IsConnected => throw new InvalidOperationException("Diagnostic must not update input data");
+        public bool IsHighConfidence => throw new InvalidOperationException("Diagnostic must not update input data");
+        public bool IsTrackedDataValid => throw new InvalidOperationException("Diagnostic must not update input data");
+    }
+}
+
+namespace Oculus.Interaction.GrabAPI
+{
+    public class HandGrabAPI : UnityEngine.MonoBehaviour { }
+}
+
+namespace Oculus.Interaction.HandGrab
+{
+    using Oculus.Interaction.GrabAPI;
+    public class HandGrabInteractor : Oculus.Interaction.TestInteractor
+    {
+        public Oculus.Interaction.Input.IHand Hand { get; set; }
+        public HandGrabAPI HandGrabApi { get; set; }
+    }
+    public class DistanceHandGrabInteractor : Oculus.Interaction.TestInteractor
+    {
+        public Oculus.Interaction.Input.IHand Hand { get; set; }
+        public HandGrabAPI HandGrabApi { get; set; }
+    }
+    public class HandGrabInteractable : Oculus.Interaction.TestInteractable { }
+    public class DistanceHandGrabInteractable : Oculus.Interaction.TestInteractable { }
 }
 
 namespace Toss.Coin

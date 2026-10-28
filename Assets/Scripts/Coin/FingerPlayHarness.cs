@@ -121,6 +121,16 @@ namespace Toss.Coin
         private Quaternion _initialRotation;
         private bool _isSubscribed = false;
 
+        private int _provenanceOwnerId = -1;
+        private Component _provenanceSource;
+        private string _provenanceSourceMatch = "Missing";
+        private string _provenanceSourceIdentity = "Unknown";
+        private string _provenancePoseInput = "Unknown";
+        private string _provenanceSelectionApi = "Unknown";
+        private bool _provenanceUnselectLogged;
+        private bool _provenanceCancelObserved;
+        private int _provenanceLastMotionFrame = -1;
+
         #region Motion Sampling
         private struct MotionSample
         {
@@ -354,6 +364,7 @@ namespace Toss.Coin
                 }
                 _selectionRecoveryLocked = false;
                 ExitInteractionAuthority();
+                CacheReleaseProvenance(-1);
                 return;
             }
 
@@ -430,6 +441,8 @@ namespace Toss.Coin
 
                 Debug.LogWarning("[FingerPlayHarness] Active SDK selection found without identifiable owner. Entered locked safe recovery state.");
             }
+
+            CacheReleaseProvenance(-1, true);
         }
 
         #region IGameObjectFilter (SDK Selection Boundary Enforcement)
@@ -532,6 +545,7 @@ namespace Toss.Coin
 
         private void HandlePointerEvent(PointerEvent evt)
         {
+            ObserveReleaseProvenance(evt);
             switch (evt.Type)
             {
                 case PointerEventType.Select:
@@ -592,6 +606,7 @@ namespace Toss.Coin
 
             _activeHand = ResolveActiveHand(evt.Pose.position, out GameObject handGo);
             EnterInteractionAuthority(evt.Identifier, handGo);
+            CacheReleaseProvenance(evt.Identifier);
 
             Debug.Log($"[FingerPlayHarness] FINGER_PLAY_GRAB_BEGIN (Hand: {_activeHand}, Identifier: {evt.Identifier})");
         }
@@ -599,6 +614,106 @@ namespace Toss.Coin
         private void OnGrabMove(PointerEvent evt)
         {
             // Hand pose updates are handled directly by SDK Transformer
+        }
+
+        private void CacheReleaseProvenance(int ownerId, bool preserveSameSelection = false)
+        {
+            Component matchedSource = null;
+            int matchedOwnerId = ownerId;
+            bool ambiguous = false;
+            if (_grabbable != null && (ownerId >= 0 || GetSelectingPointsCount() > 0))
+            {
+                foreach (var interactable in GetComponentsInChildren<IInteractableView>(true))
+                {
+                    IPointableElement target = interactable is HandGrabInteractable near ? near.PointableElement
+                        : interactable is DistanceHandGrabInteractable far ? far.PointableElement
+                        : interactable is GazeInteractable gaze ? gaze.PointableElement : null;
+                    if (!ReferenceEquals(target, _grabbable) || interactable.SelectingInteractorViews == null) continue;
+
+                    foreach (var view in interactable.SelectingInteractorViews)
+                    {
+                        if (view == null || view.Identifier < 0 || (ownerId >= 0 && view.Identifier != ownerId)) continue;
+                        var source = view as Component;
+                        if (source == null || (matchedSource != null && !ReferenceEquals(matchedSource, source)))
+                        {
+                            ambiguous = true;
+                            break;
+                        }
+                        matchedSource = source;
+                        matchedOwnerId = view.Identifier;
+                    }
+                    if (ambiguous) break;
+                }
+            }
+
+            if (ambiguous)
+            {
+                matchedSource = null;
+                matchedOwnerId = ownerId;
+            }
+            if (preserveSameSelection && matchedSource != null && ReferenceEquals(matchedSource, _provenanceSource)
+                && matchedOwnerId == _provenanceOwnerId) return;
+
+            _provenanceOwnerId = matchedOwnerId;
+            _provenanceSource = matchedSource;
+            _provenanceSourceMatch = ambiguous ? "UnresolvedOrAmbiguous" : matchedSource != null ? "MatchedAtSelection" : "Missing";
+            _provenanceSourceIdentity = DescribeProvenanceObject(matchedSource);
+            _provenancePoseInput = "Unknown";
+            _provenanceSelectionApi = "Unknown";
+            _provenanceUnselectLogged = false;
+            _provenanceCancelObserved = false;
+            _provenanceLastMotionFrame = -1;
+            if (matchedSource is HandGrabInteractor handGrab)
+            {
+                _provenancePoseInput = DescribeProvenanceObject(handGrab.Hand);
+                _provenanceSelectionApi = DescribeProvenanceObject(handGrab.HandGrabApi);
+            }
+            else if (matchedSource is DistanceHandGrabInteractor distanceGrab)
+            {
+                _provenancePoseInput = DescribeProvenanceObject(distanceGrab.Hand);
+                _provenanceSelectionApi = DescribeProvenanceObject(distanceGrab.HandGrabApi);
+            }
+        }
+
+        private static string DescribeProvenanceObject(object source)
+        {
+            if (source == null) return "Unknown";
+            if (source is UnityEngine.Object unityObject)
+                return unityObject != null ? $"{source.GetType().Name}#{unityObject.GetInstanceID()}" : "Destroyed";
+            return source.GetType().Name;
+        }
+
+        private void ObserveReleaseProvenance(PointerEvent evt)
+        {
+            if (_provenanceOwnerId < 0 || evt.Identifier != _provenanceOwnerId) return;
+            if (evt.Type == PointerEventType.Cancel)
+            {
+                if (_provenanceCancelObserved) return;
+                _provenanceCancelObserved = true;
+            }
+            else if (evt.Type == PointerEventType.Unselect)
+            {
+                if (_provenanceUnselectLogged) return;
+                _provenanceUnselectLogged = true;
+            }
+            else return;
+
+            bool? sourceActive = _provenanceSource is Behaviour source && source != null
+                ? source.isActiveAndEnabled : (bool?)null;
+            string reason = _provenanceCancelObserved ? "ExplicitCancelObserved"
+                : !isActiveAndEnabled ? "HarnessInactiveObserved"
+                : sourceActive == false ? "SourceInactiveObserved" : "NoExplicitReleaseCause";
+            string classification = reason == "NoExplicitReleaseCause" ? "Unknown" : "NonUserExit";
+            // IHand validity getters can advance lazy SDK data; pose input is not proof of selector input.
+            Debug.Log($"[FingerPlayHarness] RELEASE_PROVENANCE owner={_provenanceOwnerId} event={evt.Type} "
+                + $"sourceMatch={_provenanceSourceMatch} source={_provenanceSourceIdentity} "
+                + $"poseInputAtSelection={_provenancePoseInput} selectionApiAtSelection={_provenanceSelectionApi} "
+                + $"selectionInput=Unknown inputValidity=Unknown_NotRead "
+                + $"sourceActive={(sourceActive.HasValue ? sourceActive.Value.ToString() : "Unknown")} "
+                + $"harnessActive={isActiveAndEnabled} cancelObserved={_provenanceCancelObserved} "
+                + $"sdkDisableCause=Unknown lastMotionFrame={_provenanceLastMotionFrame} "
+                + $"eventFrame={Time.frameCount} sampleContinuity={_hasPrevSample} samples={_motionSamples.Count} "
+                + $"classification={classification} reason={reason}");
         }
 
         private void OnGrabCancel(PointerEvent evt)
@@ -773,6 +888,7 @@ namespace Toss.Coin
                 _motionSamples.Dequeue();
             }
             _motionSamples.Enqueue(new MotionSample(instLinearVel, instAngularVel, dt));
+            _provenanceLastMotionFrame = Time.frameCount;
 
             _prevSamplePosition = currentPos;
             _prevSampleRotation = currentRot;

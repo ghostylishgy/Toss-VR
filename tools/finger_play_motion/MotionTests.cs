@@ -6,6 +6,9 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Oculus.Interaction;
+using Oculus.Interaction.HandGrab;
+using Oculus.Interaction.Input;
+using Oculus.Interaction.GrabAPI;
 using TossMotionAudit;
 
 namespace Toss.Coin
@@ -20,6 +23,7 @@ namespace Toss.Coin
         public static int Main(string[] args)
         {
             if (Array.IndexOf(args, "--normal-trace") >= 0) return NormalTrace();
+            if (Array.IndexOf(args, "--lifecycle-trace") >= 0) return LifecycleTrace();
             Console.WriteLine("P1.2C MOTION SAMPLING OFFLINE REGRESSION | DOUBLES ONLY | NOT ENGINE/SDK/XR VALIDATION | IMPLEMENTATION CHECK, RUNTIME PENDING");
             if (Array.IndexOf(args, "--safety-only") < 0)
             {
@@ -40,6 +44,14 @@ namespace Toss.Coin
             Case("H3 finite release at every stage", SafeRelease);
             Case("H4 invalid poses never enter queue", SafePoseSamples);
             Case("H5 non-finite time never enters queue", SafeNonFiniteTime);
+#if RELEASE_PROVENANCE
+            Case("provenance ordinary release remains unknown", ProvenanceSources);
+            Case("provenance missing ambiguous and unrelated sources", ProvenanceUnknown);
+            Case("provenance inactivity is not universal SDK disable", ProvenanceInactive);
+            Case("provenance nested terminals and duplicate bounds", ProvenanceTerminals);
+            Case("provenance fresh grab and resync", ProvenanceFreshGrab);
+            Case("provenance resync cache lifetime", ProvenanceResync);
+#endif
             Console.WriteLine("OFFLINE RESULT: {0}/{1} cases passed, assertions={2}, failed assertions={3}, kinematic velocity writes={4}",
                 cases - failedCases, cases, assertions, failedAssertions, globalKinematicWrites);
             foreach (string note in notes) Console.WriteLine("NOTE " + note);
@@ -260,12 +272,230 @@ namespace Toss.Coin
                     h.GetEstimatedVelocities(out Vector3 l, out Vector3 a);
                     Console.WriteLine("TRACE {0} {1} {2} {3} {4} {5} {6}", hz, profile, motion, i, l, a, h._motionSamples.Count);
                 }
-                h.OnGrabEnd(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
                 Console.WriteLine("RELEASE {0} {1} {2} {3} {4} {5} {6}", hz, profile, motion,
                     h._rigidbody.linearVelocity, h._rigidbody.angularVelocity, h._state, h._rigidbody.isKinematic);
             }
             return failures.Count == 0 ? 0 : 1;
         }
+
+        private static void NestedTerminals(FingerPlayHarness h, bool cancelFirst)
+        {
+            bool reentered = false;
+            Audit.OnLog = message =>
+            {
+                if (!message.Contains(cancelFirst ? "Cancelled: true" : "FINGER_PLAY_RELEASE profile=")) return;
+                Audit.OnLog = null;
+                reentered = true;
+                h.HandlePointerEvent(new PointerEvent(Owner,
+                    cancelFirst ? PointerEventType.Unselect : PointerEventType.Cancel, new Pose()));
+            };
+            try
+            {
+                h.HandlePointerEvent(new PointerEvent(Owner,
+                    cancelFirst ? PointerEventType.Cancel : PointerEventType.Unselect, new Pose()));
+            }
+            finally { Audit.OnLog = null; }
+            Check(reentered, "supplied hook reenters while the original handler is still on the stack");
+        }
+
+        private static int LifecycleTrace()
+        {
+            foreach (ReleaseProfile profile in new[] { ReleaseProfile.Freeze, ReleaseProfile.ResidualSettle })
+            for (int scenario = 0; scenario < 6; scenario++)
+            {
+                Audit.Reset();
+                var h = Held(profile);
+                PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+                PoseFrame(h, new Vector3(.01f, 0, 0), Quaternion.identity, .02f);
+                h._selectionRecoveryLocked = scenario == 4;
+                h.isActiveAndEnabled = scenario != 5;
+                if (scenario == 2 || scenario == 3) NestedTerminals(h, scenario == 2);
+                else h.HandlePointerEvent(new PointerEvent(Owner,
+                    scenario == 1 ? PointerEventType.Cancel : PointerEventType.Unselect, new Pose()));
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                for (int i = 0; i < 40; i++) h.FixedUpdate();
+                h.isActiveAndEnabled = true;
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Select, new Pose()));
+                h.HandlePointerEvent(new PointerEvent(Owner + 1, PointerEventType.Select, new Pose()));
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                Console.WriteLine("LIFECYCLE {0} {1} state={2} owner={3} lock={4} samples={5} presenter={6} gravity={7}",
+                    profile, scenario, h._state, h._currentOwnerId, h._selectionRecoveryLocked,
+                    h._motionSamples.Count, h._coinPresenter.enabled, h._rigidbody.useGravity);
+                foreach (string line in Audit.Events)
+                    if (!line.StartsWith("log:[FingerPlayHarness] RELEASE_PROVENANCE ")) Console.WriteLine(line);
+            }
+            return failures.Count == 0 ? 0 : 1;
+        }
+
+#if RELEASE_PROVENANCE
+        private static FingerPlayHarness ProvenanceHeld(TestInteractor source, TestInteractable target,
+            ReleaseProfile profile = ReleaseProfile.ResidualSettle)
+        {
+            var h = Held(profile);
+            source.Identifier = Owner;
+            target.PointableElement = h._grabbable;
+            target.SelectingInteractorViews = new[] { source };
+            h.Children = new object[] { target };
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Select, new Pose()));
+            return h;
+        }
+
+        private static List<string> ProvenanceLogs()
+        {
+            return Audit.Events.FindAll(x => x.StartsWith("log:[FingerPlayHarness] RELEASE_PROVENANCE "));
+        }
+
+        private static void ProvenanceSources()
+        {
+            foreach (int kind in new[] { 0, 1, 2 })
+            foreach (ReleaseProfile profile in new[] { ReleaseProfile.Freeze, ReleaseProfile.ResidualSettle })
+            {
+                var hand = new UnreadableHand();
+                var api = new HandGrabAPI();
+                TestInteractor source = kind == 0 ? new HandGrabInteractor { Hand = hand, HandGrabApi = api }
+                    : kind == 1 ? new DistanceHandGrabInteractor { Hand = hand, HandGrabApi = api }
+                    : (TestInteractor)new GazeInteractor();
+                TestInteractable target = kind == 0 ? new HandGrabInteractable()
+                    : kind == 1 ? new DistanceHandGrabInteractable() : (TestInteractable)new GazeInteractable();
+                var h = ProvenanceHeld(source, target, profile);
+                Check(ReferenceEquals(h._provenanceSource, source), "exact selecting source cached, not nearest hand");
+                target.SelectingInteractorViews = Array.Empty<IInteractorView>();
+                PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+                Time.frameCount = 12;
+                PoseFrame(h, new Vector3(.01f, 0, 0), Quaternion.identity, .02f);
+                Time.frameCount = 13;
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                string log = ProvenanceLogs()[0];
+                Check(log.Contains("classification=Unknown reason=NoExplicitReleaseCause"), "ordinary candidate is not proven voluntary");
+                Check(log.Contains("source=" + source.GetType().Name + "#" + source.GetInstanceID()), "source survives SDK collection removal");
+                Check(log.Contains("inputValidity=Unknown_NotRead") && log.Contains("selectionInput=Unknown"), "pose identity is not input validity or physical selector proof");
+                Check(log.Contains("lastMotionFrame=12 eventFrame=13 sampleContinuity=True samples=1"), "sample evidence is bounded and timestamped");
+                Check(kind == 2 ? log.Contains("poseInputAtSelection=Unknown selectionApiAtSelection=Unknown")
+                    : log.Contains("poseInputAtSelection=UnreadableHand#") && log.Contains("selectionApiAtSelection=HandGrabAPI#"), "only exposed source references recorded");
+                Check(h._rigidbody.isKinematic == (profile == ReleaseProfile.Freeze), "diagnosis does not choose release physics");
+                Check(!h._coinPresenter.enabled && h._currentOwnerId == -1, "existing authority handoff preserved");
+            }
+        }
+
+        private static void ProvenanceUnknown()
+        {
+            for (int scenario = 0; scenario < 4; scenario++)
+            {
+                var source = new GazeInteractor { Identifier = Owner };
+                var target = new GazeInteractable();
+                var h = ProvenanceHeld(source, target);
+                if (scenario == 0) target.SelectingInteractorViews = Array.Empty<IInteractorView>();
+                if (scenario == 1) target.SelectingInteractorViews = new IInteractorView[] { source, new GazeInteractor { Identifier = Owner } };
+                if (scenario == 2) target.PointableElement = new Grabbable();
+                if (scenario == 3) h.Children = new object[] { target, target };
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Select, new Pose()));
+                Check((h._provenanceSource != null) == (scenario == 3), "only unique matching source accepted; duplicate views deduplicated");
+                h.HandlePointerEvent(new PointerEvent(Owner + 1, PointerEventType.Cancel, new Pose()));
+                Check(ProvenanceLogs().Count == 0 && h._state == FingerPlayState.Grabbed, "foreign terminal not attributed to owner");
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                Check(ProvenanceLogs()[0].Contains("classification=Unknown"), "missing or ambiguous evidence never becomes voluntary");
+            }
+        }
+
+        private static void ProvenanceInactive()
+        {
+            for (int scenario = 0; scenario < 4; scenario++)
+            {
+                var source = new HandGrabInteractor { Hand = new UnreadableHand() };
+                var h = ProvenanceHeld(source, new HandGrabInteractable());
+                if (scenario == 0) source.enabled = false;
+                if (scenario == 1) source.gameObject.activeInHierarchy = false;
+                if (scenario == 2) h.isActiveAndEnabled = false;
+                h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                string log = ProvenanceLogs()[0];
+                Check(log.Contains(scenario == 3 ? "classification=Unknown" : "classification=NonUserExit"), "direct SDK Disable with active Unity flags is indistinguishable");
+                Check(log.Contains("sdkDisableCause=Unknown"), "inactivity does not claim SDK disable cause");
+                Check(h._state == (scenario == 2 ? FingerPlayState.Settled : FingerPlayState.Settling), "negative diagnosis cannot change preexisting release dispatch");
+            }
+        }
+
+        private static void ProvenanceTerminals()
+        {
+            foreach (bool cancelFirst in new[] { true, false })
+            {
+                var h = ProvenanceHeld(new GazeInteractor(), new GazeInteractable());
+                NestedTerminals(h, cancelFirst);
+                var logs = ProvenanceLogs();
+                Check(logs.Count == 2, "both terminal event kinds observed under supplied nested callback order");
+                Check(logs.Find(x => x.Contains("event=Cancel")).Contains("classification=NonUserExit reason=ExplicitCancelObserved"), "explicit Cancel survives earlier owner clearing");
+                Check(logs.Find(x => x.Contains("event=Unselect")).Contains(cancelFirst ? "classification=NonUserExit" : "classification=Unknown"), "later Cancel never fabricates earlier release certainty");
+                for (int i = 0; i < 8; i++)
+                {
+                    h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                    h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                }
+                Check(ProvenanceLogs().Count == 2, "duplicate terminal logs bounded to two per grab");
+                Check(h._state == (cancelFirst ? FingerPlayState.Settled : FingerPlayState.Settling), "existing Cancel/Unselect ordering behavior preserved");
+            }
+        }
+
+        private static void ProvenanceFreshGrab()
+        {
+            var target = new GazeInteractable();
+            var h = ProvenanceHeld(new GazeInteractor(), target);
+            PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+            Time.frameCount = 20;
+            PoseFrame(h, new Vector3(.01f, 0, 0), Quaternion.identity, .02f);
+            PoseFrame(h, Vector3.zero, Quaternion.identity, float.NaN);
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+            Check(ProvenanceLogs()[0].Contains("lastMotionFrame=20 eventFrame=20 sampleContinuity=False samples=0"), "last accepted sample is not current valid input");
+            var next = new GazeInteractor { Identifier = Owner };
+            target.SelectingInteractorViews = new[] { next };
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Select, new Pose()));
+            Check(!h._provenanceCancelObserved && !h._provenanceUnselectLogged && h._provenanceLastMotionFrame == -1,
+                "same-identifier new grab resets terminal and sample evidence");
+            Check(ReferenceEquals(h._provenanceSource, next), "new grab does not inherit old source");
+            h._grabbable.SelectingPoints.Add(new Pose());
+            h.ResyncSelectionState();
+            Check(ReferenceEquals(h._provenanceSource, next) && h._currentOwnerId == Owner, "resync captures actual selection");
+            h._grabbable.SelectingPoints.Clear();
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+            Check(ProvenanceLogs()[1].Contains("classification=Unknown"), "prior Cancel never contaminates next release");
+        }
+
+        private static void ProvenanceResync()
+        {
+            var source = new GazeInteractor();
+            var target = new GazeInteractable();
+            var h = ProvenanceHeld(source, target);
+            h._grabbable.SelectingPoints.Add(new Pose());
+            PoseFrame(h, Vector3.zero, Quaternion.identity, .02f);
+            Time.frameCount = 30;
+            PoseFrame(h, new Vector3(.01f, 0, 0), Quaternion.identity, .02f);
+            h.ResyncSelectionState();
+            Check(h._provenanceLastMotionFrame == 30, "same selection resync preserves sample evidence");
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+            h.ResyncSelectionState();
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+            Check(ProvenanceLogs().Count == 1 && h._provenanceCancelObserved, "resync cannot rearm terminal logging without a new grab");
+            h._grabbable.SelectingPoints.Clear();
+            h.ResyncSelectionState();
+            Check(h._provenanceOwnerId == -1 && h._provenanceSource == null, "confirmed idle retires provenance");
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+            Check(ProvenanceLogs().Count == 1, "terminal after idle resync cannot use retired source");
+
+            var unrelated = new GazeInteractable
+            {
+                PointableElement = new Grabbable(),
+                SelectingInteractorViews = new[] { new GazeInteractor { Identifier = Owner + 1 } }
+            };
+            h.Children = new object[] { unrelated, target };
+            h._grabbable.SelectingPoints.Add(new Pose());
+            h.ResyncSelectionState();
+            Check(h._currentOwnerId == Owner + 1, "diagnostics leave existing authority recovery untouched");
+            Check(h._provenanceOwnerId == Owner && ReferenceEquals(h._provenanceSource, source), "diagnostic resync independently identifies direct Grabbable source");
+            h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+            Check(ProvenanceLogs().Count == 2 && h._state == FingerPlayState.Grabbed,
+                "diagnostic owner cannot override existing event acceptance");
+        }
+#endif
 
         private static MotionSample LastSample(FingerPlayHarness h)
         {

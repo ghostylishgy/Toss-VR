@@ -27,8 +27,10 @@ BACKUP = Path("G:/Dev/Toss-VR_AB_Backup/FingerPlayHarness.P1_2C.cs")
 HERE = Path(__file__).resolve().parent
 METHODS = ["UpdateMotionSampling", "GetEstimatedVelocities", "GetSelectingPointsCount", "OnGrabBegin",
            "OnGrabMove", "OnGrabCancel", "OnGrabEnd", "UpdateSettlingPhysics", "CompleteSettle",
-           "EnterInteractionAuthority", "ExitInteractionAuthority", "Update", "FixedUpdate"]
-HELPERS = ["IsFinite", "IsFiniteVector", "IsFiniteRotation", "FiniteVelocityOrZero", "ResetMotionSampling"]
+           "EnterInteractionAuthority", "ExitInteractionAuthority", "Update", "FixedUpdate",
+           "HandlePointerEvent", "ResyncSelectionState"]
+HELPERS = ["IsFinite", "IsFiniteVector", "IsFiniteRotation", "FiniteVelocityOrZero", "ResetMotionSampling",
+           "CacheReleaseProvenance", "DescribeProvenanceObject", "ObserveReleaseProvenance"]
 
 
 def digest(path):
@@ -60,6 +62,7 @@ def block(text, pattern):
 def fixture_source(snippets):
     out = ('// GENERATED OFFLINE FIXTURE: production members copied verbatim; Unity/SDK types are doubles.\n'
            'using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing Oculus.Interaction;\n'
+           'using Oculus.Interaction.HandGrab;\nusing Oculus.Interaction.Input;\n'
            'namespace Toss.Coin\n{\n')
     out += snippets['ReleaseProfile'][2] + '\n' + snippets['FingerPlayState'][2] + '\n'
     out += '    public partial class FingerPlayHarness : MonoBehaviour\n    {\n' + snippets['fields'][2]
@@ -76,6 +79,7 @@ def main():
     parser.add_argument('--safety-only', action='store_true')
     parser.add_argument('--source-revision', help='Read production from git; use --skip-defect-injection for old revisions.')
     parser.add_argument('--compare-normal', type=Path, help='Compare against a saved pre-fix normal.run.log.')
+    parser.add_argument('--compare-lifecycle', type=Path, help='Compare lifecycle side effects, excluding only provenance logs.')
     args = parser.parse_args()
 
     data = args.unity_editor.resolve() / 'Data'
@@ -101,7 +105,7 @@ def main():
     for method in METHODS:
         snippets[method] = block(text, rf'^[ \t]*(?:private|public) (?:void|int) {method}\(')
     for helper in HELPERS:
-        pattern = rf'^[ \t]*private (?:static )?(?:void|bool|Vector3) {helper}\('
+        pattern = rf'^[ \t]*private (?:static )?(?:void|bool|Vector3|string) {helper}\('
         if re.search(pattern, mask(text), re.M):
             snippets[helper] = block(text, pattern)
     start, stop = text.index('        [Header("Component References")]'), text.index('        private void Awake()')
@@ -116,7 +120,8 @@ def main():
                 'backup': {'path': str(BACKUP), 'sha256_before': before_backup}, 'limits': [
                     'No Unity/Oculus assemblies, native calls, physics integration or XR input.',
                     'Unity value types and Rigidbody are deterministic managed doubles.',
-                    'Verifies arithmetic, clamping, queue bounds and state clearing only.',
+                    'Verifies arithmetic, clamping, queue bounds, state clearing and diagnostics on supplied evidence.',
+                    'Nested callback orders are supplied by tests, not produced by the real SDK.',
                     'Not XR verification, not engine physics, not subjective weight validation.'],
                 'steps': [], 'defect_injection': []}
 
@@ -145,6 +150,8 @@ def main():
         common = [mono, csc, '/nologo', '/noconfig', '/nostdlib+', '/langversion:9.0', '/warnaserror+',
                   '/deterministic+', '/nowarn:0169,0414,0649,0219']
         common += [f'/reference:{item}' for item in references]
+        if 'CacheReleaseProvenance' in snippets:
+            common += ['/define:RELEASE_PROVENANCE']
         code, log = step(label + '.compile', [*common, '/target:exe', f'/out:{out}/{label}.Tests.exe',
                                               fixture, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs'])
         if code:
@@ -171,6 +178,15 @@ def main():
             manifest['normal_trace']['reference'] = str(args.compare_normal)
             manifest['normal_trace']['identical'] = identical
             print('NORMAL TRAJECTORIES IDENTICAL=' + str(identical))
+            success = success and identical
+        lifecycle_code, lifecycle = step('lifecycle.run', [mono, out / 'baseline.Tests.exe', '--lifecycle-trace'], quiet=True)
+        manifest['lifecycle_trace'] = {'exit_code': lifecycle_code, 'sha256': digest(out / 'lifecycle.run.log'),
+                                       'lines': len(lifecycle.splitlines()), 'excludes': 'RELEASE_PROVENANCE logs only'}
+        success = success and lifecycle_code == 0
+        if args.compare_lifecycle:
+            identical = (out / 'lifecycle.run.log').read_bytes() == args.compare_lifecycle.read_bytes()
+            manifest['lifecycle_trace'].update(reference=str(args.compare_lifecycle), identical=identical)
+            print('LIFECYCLE SIDE EFFECTS IDENTICAL=' + str(identical))
             success = success and identical
 
     mutations = [
