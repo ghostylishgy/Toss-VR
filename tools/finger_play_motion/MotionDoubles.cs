@@ -20,7 +20,9 @@ namespace TossMotionAudit
             OnLog = null;
             UnityEngine.Application.isPlaying = true;
             UnityEngine.Time.frameCount = 0;
+            UnityEngine.Time.realtimeSinceStartupAsDouble = 0;
             UnityEngine.Time.deltaTime = 0.02f; UnityEngine.Time.fixedDeltaTime = 0.02f;
+            UnityEngine.Physics.gravity = new UnityEngine.Vector3(0, -9.81f, 0);
         }
         public static bool Any(Func<string, bool> predicate) { return Events.Any(predicate); }
     }
@@ -40,12 +42,23 @@ namespace UnityEngine
         private readonly int id = ++nextId;
         public int GetInstanceID() => id;
     }
-    public class GameObject : Object { public string name = "test-object"; public bool activeInHierarchy = true; }
+    public class GameObject : Object
+    {
+        public string name = "test-object";
+        public bool activeInHierarchy = true;
+        public object[] Components = Array.Empty<object>();
+        public bool TryGetComponent<T>(out T component)
+        {
+            component = Components.OfType<T>().FirstOrDefault();
+            return component != null;
+        }
+    }
     public class Component : Object
     {
         public GameObject gameObject = new GameObject();
         public Transform transform = new Transform();
         public object[] Children = Array.Empty<object>();
+        public Component() { gameObject.Components = new object[] { this }; }
         public T[] GetComponentsInChildren<T>(bool includeInactive) => Children.OfType<T>().ToArray();
     }
     public class Behaviour : Component
@@ -142,10 +155,18 @@ namespace UnityEngine
     public class Transform
     {
         public Vector3 position; public Quaternion rotation = Quaternion.identity;
+        public Pose GetPose() => new Pose(position, rotation);
+        public void SetPositionAndRotation(Vector3 p, Quaternion q) { position = p; rotation = q; }
     }
 
     public static class Application { public static bool isPlaying = true; }
-    public static class Time { public static float deltaTime = 0.02f, fixedDeltaTime = 0.02f; public static int frameCount; }
+    public static class Time
+    {
+        public static float deltaTime = 0.02f, fixedDeltaTime = 0.02f;
+        public static int frameCount;
+        public static double realtimeSinceStartupAsDouble;
+    }
+    public static class Physics { public static Vector3 gravity = new Vector3(0, -9.81f, 0); }
     public static class Mathf
     {
         public const float Deg2Rad = (float)Math.PI / 180;
@@ -170,6 +191,11 @@ namespace UnityEngine
         private Vector3 linear, angular;
         public bool useGravity = false;
         public float linearDamping, angularDamping;
+        public float maxAngularVelocity = 7f;
+        public Vector3 position;
+        public Quaternion rotation = Quaternion.identity;
+        // Synthetic external physics corruption: does not pretend production wrote the invalid value.
+        public void SupplyVelocity(Vector3 l, Vector3 a) { linear = l; angular = a; }
         public RigidbodyInterpolation interpolation;
         public bool isKinematic
         {
@@ -204,15 +230,31 @@ namespace Oculus.Interaction
     public class Grabbable : IPointableElement
     {
         public List<UnityEngine.Pose> SelectingPoints { get; set; } = new List<UnityEngine.Pose>();
+        public int SelectingPointsCount => SelectingPoints == null ? 0 : SelectingPoints.Count;
+        public List<UnityEngine.Pose> GrabPoints { get; set; } = new List<UnityEngine.Pose>();
+        public event Action<PointerEvent> WhenPointerEventRaised;
+        public int SubscriberCount => WhenPointerEventRaised?.GetInvocationList().Length ?? 0;
+        public int ProcessedEvents;
+        public bool SyntheticCancelRemovesSelection = true;
+        public void ProcessPointerEvent(PointerEvent evt)
+        {
+            ProcessedEvents++;
+            // This supplied cancellation policy is not the SDK event pipeline.
+            if (evt.Type == PointerEventType.Cancel && SyntheticCancelRemovesSelection) SelectingPoints?.Clear();
+            WhenPointerEventRaised?.Invoke(evt);
+        }
     }
     public interface IPointableElement { }
-    public interface IInteractorView { int Identifier { get; } }
+    public interface IGameObjectFilter { bool Filter(UnityEngine.GameObject interactorGo); }
+    public enum InteractorState { Normal, Hover, Select, Disabled }
+    public interface IInteractorView { int Identifier { get; } InteractorState State { get; } }
     public interface IInteractableView { IEnumerable<IInteractorView> SelectingInteractorViews { get; } }
     public class TestInteractor : UnityEngine.MonoBehaviour, IInteractorView
     {
         public int Identifier { get; set; }
+        public InteractorState State { get; set; } = InteractorState.Normal;
     }
-    public class TestInteractable : IInteractableView
+    public class TestInteractable : UnityEngine.MonoBehaviour, IInteractableView
     {
         public IPointableElement PointableElement { get; set; }
         public IEnumerable<IInteractorView> SelectingInteractorViews { get; set; } = Array.Empty<IInteractorView>();
@@ -223,34 +265,121 @@ namespace Oculus.Interaction
 
 namespace Oculus.Interaction.Input
 {
-    public interface IHand { bool IsConnected { get; } bool IsHighConfidence { get; } bool IsTrackedDataValid { get; } }
+    // Minimal API shapes only. All raw flags/poses/versions are synthetic inputs, never XR evidence.
+    [Flags]
+    public enum HandFingerFlags { None = 0, Thumb = 1, Index = 2, Middle = 4, Ring = 8, Pinky = 16, All = 31 }
+    public enum PoseOrigin { None, RawTrackedPose, FilteredTrackedPose, SyntheticPose }
+    public class HandDataAsset
+    {
+        public bool IsDataValid, IsConnected, IsTracked, IsHighConfidence;
+        public UnityEngine.Pose Root;
+        public PoseOrigin RootPoseOrigin;
+        public bool[] IsFingerPinching = new bool[5];
+        public bool[] IsFingerHighConfidence = new bool[5];
+    }
+    public interface IDataSource<T> { T GetData(); int CurrentDataVersion { get; } }
+    public class DataModifier<T> : UnityEngine.MonoBehaviour, IDataSource<T>
+    {
+        public IDataSource<T> ModifyDataFromSource { get; set; }
+        public T GetData() => ModifyDataFromSource.GetData();
+        public int CurrentDataVersion => ModifyDataFromSource.CurrentDataVersion;
+    }
+    // The real raw source is a data source, NOT IHand. FindRawTossSource must unwrap the chain.
+    public class FromOVRHandDataSource : UnityEngine.MonoBehaviour, IDataSource<HandDataAsset>
+    {
+        public HandDataAsset Data = new HandDataAsset();
+        public int CurrentDataVersion { get; set; }
+        public int ReadCount;
+        public HandDataAsset GetData() { ReadCount++; return Data; }
+    }
+    public interface IHand
+    {
+        bool IsConnected { get; }
+        bool IsHighConfidence { get; }
+        bool IsTrackedDataValid { get; }
+        int CurrentDataVersion { get; }
+    }
+    public class Hand : DataModifier<HandDataAsset>, IHand
+    {
+        // Models a last-good/fallback hand whose public flags can remain valid over invalid raw data.
+        public bool IsConnected { get; set; } = true;
+        public bool IsHighConfidence { get; set; } = true;
+        public bool IsTrackedDataValid { get; set; } = true;
+    }
+    public class HandRef : UnityEngine.MonoBehaviour, IHand
+    {
+        public IHand Hand { get; set; }
+        public bool IsConnected => Hand.IsConnected;
+        public bool IsHighConfidence => Hand.IsHighConfidence;
+        public bool IsTrackedDataValid => Hand.IsTrackedDataValid;
+        public int CurrentDataVersion => Hand.CurrentDataVersion;
+    }
     public class UnreadableHand : UnityEngine.MonoBehaviour, IHand
     {
         public bool IsConnected => throw new InvalidOperationException("Diagnostic must not update input data");
         public bool IsHighConfidence => throw new InvalidOperationException("Diagnostic must not update input data");
         public bool IsTrackedDataValid => throw new InvalidOperationException("Diagnostic must not update input data");
+        public int CurrentDataVersion => throw new InvalidOperationException("Diagnostic must not update input data");
     }
+}
+
+namespace Oculus.Interaction.Grab
+{
+    [Flags]
+    public enum GrabTypeFlags { None = 0, Pinch = 1, Palm = 2, All = 3 }
 }
 
 namespace Oculus.Interaction.GrabAPI
 {
-    public class HandGrabAPI : UnityEngine.MonoBehaviour { }
+    using Oculus.Interaction.Input;
+    public struct GrabbingRule { }
+    public class HandGrabAPI : UnityEngine.MonoBehaviour
+    {
+        public IHand Hand { get; set; }
+        public bool SyntheticPinch, SyntheticPalm, SyntheticUnselectEdge;
+        public HandFingerFlags SyntheticSustainMask = HandFingerFlags.Thumb | HandFingerFlags.Index;
+        public HandFingerFlags LastSustainingFingers;
+        // This synthetic rule uses the passed raw mask, independently of the supplied SDK pinch bool.
+        public bool IsSustainingGrab(in GrabbingRule rule, HandFingerFlags fingers)
+        {
+            LastSustainingFingers = fingers;
+            return (fingers & SyntheticSustainMask) != 0;
+        }
+        public bool IsHandPinchGrabbing(in GrabbingRule rule) => SyntheticPinch;
+        public bool IsHandPalmGrabbing(in GrabbingRule rule) => SyntheticPalm;
+        public bool IsHandUnselectPinchFingersChanged(in GrabbingRule rule) => SyntheticUnselectEdge;
+    }
 }
 
 namespace Oculus.Interaction.HandGrab
 {
+    using Oculus.Interaction.Grab;
     using Oculus.Interaction.GrabAPI;
+    public interface IHandGrabInteractable
+    {
+        GrabTypeFlags SupportedGrabTypes { get; }
+        GrabbingRule PinchGrabRules { get; }
+        GrabbingRule PalmGrabRules { get; }
+    }
     public class HandGrabInteractor : Oculus.Interaction.TestInteractor
     {
         public Oculus.Interaction.Input.IHand Hand { get; set; }
         public HandGrabAPI HandGrabApi { get; set; }
+        // Preserve the SDK distinction: TargetInteractable is an interface, SelectedInteractable concrete.
+        public IHandGrabInteractable TargetInteractable { get; set; }
+        public HandGrabInteractable SelectedInteractable { get; set; }
     }
     public class DistanceHandGrabInteractor : Oculus.Interaction.TestInteractor
     {
         public Oculus.Interaction.Input.IHand Hand { get; set; }
         public HandGrabAPI HandGrabApi { get; set; }
     }
-    public class HandGrabInteractable : Oculus.Interaction.TestInteractable { }
+    public class HandGrabInteractable : Oculus.Interaction.TestInteractable, IHandGrabInteractable
+    {
+        public GrabTypeFlags SupportedGrabTypes { get; set; } = GrabTypeFlags.All;
+        public GrabbingRule PinchGrabRules { get; set; }
+        public GrabbingRule PalmGrabRules { get; set; }
+    }
     public class DistanceHandGrabInteractable : Oculus.Interaction.TestInteractable { }
 }
 

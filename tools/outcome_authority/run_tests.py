@@ -13,7 +13,7 @@ LABEL = "P3 OUTCOME AUTHORITY ISOLATED | TEST TRUST BOUNDARY | NOT INTEGRATED | 
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
     before = {p: digest(ROOT / p) for p in tracked}
     protected = [
         "docs/PROJECT_BRIEF.md",
-        "tools/toss_intent/TossIntentGate.cs",
+        "Assets/Scripts/Coin/TossIntentGate.cs",
         "tools/toss_intent/TossIntentTests.cs",
         "tools/flight_dynamics/FlightDynamics.cs",
         "tools/flight_dynamics/FlightDynamicsTests.cs",

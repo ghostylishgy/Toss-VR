@@ -8,7 +8,9 @@ using UnityEngine;
 using Oculus.Interaction;
 using Oculus.Interaction.HandGrab;
 using Oculus.Interaction.Input;
+using Oculus.Interaction.Grab;
 using Oculus.Interaction.GrabAPI;
+using Toss.Experiments.TossIntent;
 using TossMotionAudit;
 
 namespace Toss.Coin
@@ -51,6 +53,25 @@ namespace Toss.Coin
             Case("provenance nested terminals and duplicate bounds", ProvenanceTerminals);
             Case("provenance fresh grab and resync", ProvenanceFreshGrab);
             Case("provenance resync cache lifetime", ProvenanceResync);
+#endif
+#if TOSS_LIFECYCLE
+            Case("Toss near pinch pending then exactly one launch", TossNearLaunch);
+            Case("Toss drop and no intent preserve old release", TossNoIntent);
+            Case("Toss Palm distance and gaze excluded", TossExcludedSources);
+            Case("Toss raw source chain and selection prerequisites", TossSelectionPrerequisites);
+            Case("Toss geometric pinch lead and staggered release edges", TossStaggeredPinch);
+            Case("Toss final release and pending pose discontinuity", TossReleasePoseSafety);
+            Case("Toss raw invalid despite valid fallback Hand", TossInvalidRaw);
+            Case("Toss frozen content growing DataVersion cannot refresh intent", TossFrozenRaw);
+            Case("Toss nested and pending Cancel wins", TossCancelOrdering);
+            Case("Toss stale identity palm and source deactivation latch", TossContinuity);
+            Case("Toss pending repinch Disabled selection and stale vetoes", TossPendingVetoes);
+            Case("Toss launch linear and angular caps", TossLaunchCaps);
+            Case("Toss flight time space speed nonfinite recovery", TossFlightLimits);
+            Case("Toss recovery Filter and real regrab", TossRecoveryRegrab);
+            Case("Toss OnDisable pending flight and subscribed cancellation", TossDisable);
+            Case("Toss Reset pending flight and held guard", TossReset);
+            Case("Toss toggle off before grab held pending and flight", TossToggleOff);
 #endif
             Console.WriteLine("OFFLINE RESULT: {0}/{1} cases passed, assertions={2}, failed assertions={3}, kinematic velocity writes={4}",
                 cases - failedCases, cases, assertions, failedAssertions, globalKinematicWrites);
@@ -107,6 +128,9 @@ namespace Toss.Coin
         private static FingerPlayHarness Held(ReleaseProfile profile = ReleaseProfile.ResidualSettle)
         {
             var h = new FingerPlayHarness();
+#if TOSS_LIFECYCLE
+            h._enableToss = false; // Old numeric/provenance tests and both historical traces stay off-path.
+#endif
             h._releaseProfile = profile;
             h._rigidbody = new Rigidbody();
             h._coinPresenter = new CoinPresenter();
@@ -494,6 +518,739 @@ namespace Toss.Coin
             h.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
             Check(ProvenanceLogs().Count == 2 && h._state == FingerPlayState.Grabbed,
                 "diagnostic owner cannot override existing event acceptance");
+        }
+#endif
+
+#if TOSS_LIFECYCLE
+        // Synthetic external inputs only; gate decisions and lifecycle transitions execute production code.
+        private sealed class TossRig
+        {
+            public readonly int AuditStart = Audit.Events.Count;
+            public readonly FingerPlayHarness H = new FingerPlayHarness();
+            public readonly FromOVRHandDataSource Raw = new FromOVRHandDataSource();
+            public readonly Hand Fallback = new Hand();
+            public readonly HandRef Hand = new HandRef();
+            public readonly HandGrabAPI Api = new HandGrabAPI();
+            public readonly HandGrabInteractor Source = new HandGrabInteractor();
+            public readonly HandGrabInteractable Target = new HandGrabInteractable();
+            public TestInteractor Selector;
+            public TestInteractable SelectionTarget;
+
+            public TossRig()
+            {
+                H._enableToss = true;
+                H._grabbable = new Grabbable();
+                H._rigidbody = new Rigidbody();
+                H._coinPresenter = new CoinPresenter();
+                H._initialPosition = new Vector3(.1f, 1, -.1f);
+                H._initialRotation = Quaternion.identity;
+                H.transform.SetPositionAndRotation(H._initialPosition, H._initialRotation);
+                H._rigidbody.position = H.transform.position;
+                H._rigidbody.rotation = H.transform.rotation;
+                Raw.Data.IsDataValid = Raw.Data.IsConnected = Raw.Data.IsTracked = Raw.Data.IsHighConfidence = true;
+                Raw.Data.RootPoseOrigin = PoseOrigin.RawTrackedPose;
+                Raw.Data.Root = H.transform.GetPose();
+                for (int i = 0; i < 5; i++) Raw.Data.IsFingerHighConfidence[i] = true;
+                Fallback.ModifyDataFromSource = new DataModifier<HandDataAsset> { ModifyDataFromSource = Raw };
+                Hand.Hand = Fallback;
+                Api.Hand = Hand;
+                Source.Hand = Hand;
+                Source.HandGrabApi = Api;
+                Source.TargetInteractable = Target;
+                Source.SelectedInteractable = Target;
+                Selector = Source;
+                SelectionTarget = Target;
+                Target.PointableElement = H._grabbable;
+                SetPinch(this, true);
+                H.Subscribe();
+                H.Subscribe();
+                Check(H._grabbable.SubscriberCount == 1, "Subscribe is idempotent");
+            }
+        }
+
+        private static int TossEvents(TossRig r, string text)
+        {
+            return Audit.Events.GetRange(r.AuditStart, Audit.Events.Count - r.AuditStart).FindAll(e => e.Contains(text)).Count;
+        }
+
+        private static void SetPinch(TossRig r, bool pinching, bool changed = false)
+        {
+            Array.Clear(r.Raw.Data.IsFingerPinching, 0, 5);
+            r.Raw.Data.IsFingerPinching[1] = pinching;
+            r.Api.SyntheticPinch = pinching;
+            r.Api.SyntheticUnselectEdge = changed;
+        }
+
+        private static void SelectToss(TossRig r)
+        {
+            r.Selector.Identifier = Owner;
+            r.Selector.State = InteractorState.Select;
+            r.SelectionTarget.PointableElement = r.H._grabbable;
+            r.SelectionTarget.SelectingInteractorViews = new[] { r.Selector };
+            r.H.Children = new object[] { r.SelectionTarget };
+            r.H._grabbable.SelectingPoints.Clear();
+            r.H._grabbable.SelectingPoints.Add(r.H.transform.GetPose());
+            r.H._grabbable.ProcessPointerEvent(new PointerEvent(Owner, PointerEventType.Select, r.H.transform.GetPose()));
+            Check(r.H._state == FingerPlayState.Grabbed && r.H._currentOwnerId == Owner, "Select enters real grab authority");
+            Check(!r.H._coinPresenter.enabled, "Select yields presenter authority");
+        }
+
+        private static void AdvanceTossClock(double dt = .02)
+        {
+            Time.realtimeSinceStartupAsDouble += dt;
+            Time.frameCount++;
+            Time.deltaTime = (float)dt;
+        }
+
+        private static void TossMotion(TossRig r, Vector3 velocity, bool refreshRaw = true, float spin = 0)
+        {
+            AdvanceTossClock();
+            r.H.transform.position += velocity * Time.deltaTime;
+            r.H.transform.rotation = Quaternion.AxisAngle(Vector3.up, spin * Time.deltaTime) * r.H.transform.rotation;
+            if (refreshRaw) r.Raw.Data.Root = r.H.transform.GetPose();
+            r.Raw.CurrentDataVersion++; // Version changes independently from raw content.
+            r.H.Update();             // Actual sampling runs before actual input observation.
+            r.H.LateUpdate();
+        }
+
+        private static void ArmToss(TossRig r, float speed = 1, float spin = 0)
+        {
+            for (int i = 0; i < 8; i++) TossMotion(r, Vector3.up * speed, true, spin);
+            Check(r.H._tossGate != null && r.H._tossGate.State == GateState.Armed, "actual canonical gate armed from sustained motion");
+            Check(r.H._state == FingerPlayState.Grabbed && !r.H._tossBlocked, "intent is not itself a launch");
+            Check(ReferenceEquals(r.H._tossRaw, r.Raw) && ReferenceEquals(r.H._tossSource, r.Source), "raw chain belongs to exact selector");
+            Check(r.Api.LastSustainingFingers == HandFingerFlags.Index, "production passes raw index pinch mask to sustaining API");
+        }
+
+        private static void ReleaseToss(TossRig r, bool rawEdge = true, bool sdkEdge = true)
+        {
+            Time.realtimeSinceStartupAsDouble += .001;
+            if (rawEdge) Array.Clear(r.Raw.Data.IsFingerPinching, 0, 5);
+            r.Api.SyntheticPinch = false;
+            r.Api.SyntheticUnselectEdge = sdkEdge;
+            r.Raw.CurrentDataVersion++;
+            r.SelectionTarget.SelectingInteractorViews = Array.Empty<IInteractorView>();
+            r.H._grabbable.SelectingPoints.Clear();
+            r.Source.SelectedInteractable = null;
+            // Callback may arrive while State is still Select; confirmation must wait for the next frame.
+            r.H._grabbable.ProcessPointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, r.H.transform.GetPose()));
+            r.Selector.State = InteractorState.Hover;
+            r.Source.TargetInteractable = null;
+        }
+
+        private static void TossNextFrame(TossRig r, double dt = .02)
+        {
+            AdvanceTossClock(dt);
+            r.Api.SyntheticUnselectEdge = false; // SDK changed edge existed only at the callback.
+            r.H.Update();
+            r.H.LateUpdate();
+            r.H.FixedUpdate();
+        }
+
+        private static void CheckTossPending(TossRig r)
+        {
+            Check(r.H._state == FingerPlayState.ReleasePending, "Unselect records pending, not flight or settle");
+            Check(r.H._rigidbody.isKinematic && !r.H._rigidbody.useGravity, "pending stays kinematic without gravity");
+            Check(r.H._currentOwnerId == -1 && r.H.GetSelectingPointsCount() == 0, "pending has no SDK selection or harness owner");
+            Check(!r.H.Filter(r.Source.gameObject), "Filter rejects regrab while pending");
+            Check(TossEvents(r, "dynamic-transition") == 0 && TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0, "no early dynamic execution");
+        }
+
+        private static void CheckNoLegacyTossPhysics(TossRig r, int launches)
+        {
+            Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == launches && TossEvents(r, "dynamic-transition") == launches
+                && TossEvents(r, "kinematic:False") == launches, "one dynamic transition per launch, no duplicate physics path");
+            Check(TossEvents(r, "FINGER_PLAY_RELEASE") == 0 && TossEvents(r, "SETTLE_BEGIN") == 0
+                && TossEvents(r, "SETTLE_END") == 0, "Toss never also executes old release/settling");
+            Check(!r.H._coinPresenter.enabled && TossEvents(r, "presenter:True") == 0, "presenter stays off throughout Toss");
+            Check(r.H._settleTimer == 0 && r.H._settleHoldTimer == 0, "settle timers do not execute during Toss");
+            Check(TossEvents(r, "NON-FINITE-VELOCITY-WRITE") == 0, "production never writes a nonfinite velocity");
+        }
+
+        private static void CheckTossStopped(TossRig r, int launches)
+        {
+            Check(r.H._state == FingerPlayState.Settled && r.H._currentOwnerId == -1, "recovery retires authority");
+            Check(r.H._rigidbody.isKinematic && !r.H._rigidbody.useGravity, "recovery freezes without gravity");
+            Vec(r.H._rigidbody.linearVelocity, 0, 0, 0, 0, "recovery zero linear");
+            Vec(r.H._rigidbody.angularVelocity, 0, 0, 0, 0, "recovery zero spin");
+            Near(r.H._rigidbody.maxAngularVelocity, 7, 0, "recovery restores original angular limit");
+            Check(r.H._motionSamples.Count == 0 && !r.H._hasPrevSample, "recovery clears motion continuity");
+            CheckNoLegacyTossPhysics(r, launches);
+        }
+
+        private static TossRig FlyingToss(float speed = 1, float spin = 0)
+        {
+            var r = new TossRig();
+            SelectToss(r);
+            ArmToss(r, speed, spin);
+            ReleaseToss(r);
+            CheckTossPending(r);
+            TossNextFrame(r);
+            Check(r.H._state == FingerPlayState.Flight && !r.H._rigidbody.isKinematic && r.H._rigidbody.useGravity,
+                "next frame launches with dynamic gravity authority");
+            Check(!r.H.Filter(r.Source.gameObject), "Filter rejects regrab during flight");
+            return r;
+        }
+
+        private static void TossNearLaunch()
+        {
+            var r = new TossRig();
+            SelectToss(r);
+            Check(r.H.Filter(r.Source.gameObject) && !r.H.Filter(new GazeInteractor { Identifier = Owner + 1 }.gameObject),
+                "Filter preserves single-owner boundary while held");
+            ArmToss(r);
+            Check(r.H._tossGate.IntentsAccepted == 0, "armed motion has not released an intent");
+            ReleaseToss(r);
+            CheckTossPending(r);
+            Check(r.H._tossGate.IntentsAccepted == 1, "exactly one canonical gate intent at release");
+            Near(r.H._rawReleaseAt, Time.realtimeSinceStartupAsDouble, 0, "raw edge observed at callback");
+            Near(r.H._sdkReleaseAt, Time.realtimeSinceStartupAsDouble, 0, "SDK changed edge observed at callback");
+            r.H.LateUpdate();
+            r.H.FixedUpdate();
+            CheckTossPending(r); // Same frame is too early even if the source already became Hover.
+            TossNextFrame(r);
+            Check(r.H._state == FingerPlayState.Flight && r.H._rigidbody.useGravity, "next-frame confirmation launches");
+            Vec(r.H._rigidbody.linearVelocity, 0, 1, 0, 1e-4, "Toss inherits unscaled upward motion, not residual 0.2 scale");
+            Check(r.H._motionSamples.Count == 0 && !r.H._hasPrevSample, "launch drops held sample window");
+            for (int i = 0; i < 3; i++)
+            {
+                r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                r.H.HandlePointerEvent(new PointerEvent(Owner + 1, PointerEventType.Cancel, new Pose()));
+                TossNextFrame(r);
+            }
+            Check(r.H._state == FingerPlayState.Flight && r.H._tossGate.IntentsAccepted == 1, "duplicate and foreign terminals cannot launch twice");
+            CheckNoLegacyTossPhysics(r, 1);
+            int dynamicAt = Audit.Events.FindIndex(r.AuditStart, e => e == "kinematic:False");
+            int velocityAt = Audit.Events.FindIndex(r.AuditStart, e => e.StartsWith("linear:") || e.StartsWith("angular:"));
+            Check(dynamicAt >= r.AuditStart && velocityAt > dynamicAt, "Toss switches dynamic before first velocity write");
+        }
+
+        private static void TossNoIntent()
+        {
+            foreach (ReleaseProfile profile in new[] { ReleaseProfile.Freeze, ReleaseProfile.ResidualSettle })
+            foreach (Vector3 velocity in new[] { Vector3.zero, new Vector3(0, -1, 0), new Vector3(1, 0, 0) })
+            {
+                var r = new TossRig();
+                r.H._releaseProfile = profile;
+                SelectToss(r);
+                for (int i = 0; i < 8; i++) TossMotion(r, velocity);
+                ReleaseToss(r);
+                Check(r.H._state == (profile == ReleaseProfile.Freeze ? FingerPlayState.Settled : FingerPlayState.Settling),
+                    "no upward intent retains chosen old release profile");
+                Vector3 expected = profile == ReleaseProfile.Freeze ? Vector3.zero : velocity * .2f;
+                Vec(r.H._rigidbody.linearVelocity, expected.x, expected.y, expected.z, 1e-5, "old drop/release velocity unchanged");
+                Check(r.H._tossGate.IntentsAccepted == 0 && TossEvents(r, "TOSS_PENDING") == 0, "drop is not inferred as Toss");
+                Check(TossEvents(r, "FINGER_PLAY_RELEASE") == 1 && !r.H._rigidbody.useGravity, "old release executes once without gravity");
+                TossNextFrame(r);
+                Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0, "drop does not launch a frame later");
+            }
+            // Both independent physical-edge channels are required even when motion was armed.
+            foreach (bool missingRaw in new[] { true, false })
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                ReleaseToss(r, rawEdge: !missingRaw, sdkEdge: missingRaw);
+                TossNextFrame(r);
+                Check(TossEvents(r, "TOSS_PENDING") == 0 && TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0,
+                    "one missing raw/SDK edge never enters Toss");
+            }
+        }
+
+        private static void TossExcludedSources()
+        {
+            for (int kind = 0; kind < 3; kind++)
+            {
+                var r = new TossRig();
+                if (kind == 0) r.Api.SyntheticPalm = true; // Pinch + Palm is not a pure pinch either.
+                if (kind == 1)
+                {
+                    r.Selector = new DistanceHandGrabInteractor { Hand = r.Hand, HandGrabApi = r.Api };
+                    r.SelectionTarget = new DistanceHandGrabInteractable();
+                }
+                if (kind == 2)
+                {
+                    r.Selector = new GazeInteractor();
+                    r.SelectionTarget = new GazeInteractable();
+                }
+                SelectToss(r);
+                for (int i = 0; i < 8; i++) TossMotion(r, Vector3.up);
+                Check(r.H._tossSource == null && r.Raw.ReadCount == 0, "unsupported selector never starts raw Toss observation, kind=" + kind);
+                ReleaseToss(r);
+                TossNextFrame(r);
+                Check(r.H._state == FingerPlayState.Settling && TossEvents(r, "FINGER_PLAY_RELEASE") == 1,
+                    "excluded source retains old release path");
+                Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0 && !r.H._rigidbody.useGravity, "excluded source never launches");
+            }
+        }
+
+        private static void TossSelectionPrerequisites()
+        {
+            var chain = new TossRig();
+            Check(ReferenceEquals(FindRawTossSource(chain.Hand), chain.Raw), "actual finder traverses HandRef and data modifiers");
+            Check(FindRawTossSource(new UnreadableHand()) == null, "unknown Hand has no guessed raw source or flag reads");
+            chain.Fallback.ModifyDataFromSource = chain.Fallback;
+            Check(FindRawTossSource(chain.Hand) == null, "cyclic data chain terminates at bounded depth");
+            for (int variant = 0; variant < 5; variant++)
+            {
+                var r = new TossRig();
+                r.Source.Identifier = Owner;
+                r.Source.State = InteractorState.Select;
+                r.Target.SelectingInteractorViews = new[] { r.Source };
+                r.H.Children = new object[] { r.Target };
+                if (variant != 0) r.H._grabbable.SelectingPoints.Add(new Pose());
+                if (variant == 1) r.H._grabbable.SelectingPoints.Add(new Pose());
+                if (variant == 2) r.Source.SelectedInteractable = null;
+                if (variant == 3) Array.Clear(r.Raw.Data.IsFingerPinching, 0, 5);
+                if (variant == 4) r.Api.SyntheticSustainMask = HandFingerFlags.Middle;
+                r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Select, r.H.transform.GetPose()));
+                if (variant < 3)
+                {
+                    Check(r.H._tossBlocked || r.H._tossSource == null, "one selection and its selected target required at Select, variant=" + variant);
+                    // Repair supplied SDK membership without a new Select: invalid ownership stays vetoed.
+                    r.H._grabbable.SelectingPoints.Clear();
+                    r.H._grabbable.SelectingPoints.Add(new Pose());
+                    r.Source.SelectedInteractable = r.Target;
+                }
+                else Check(!r.H._rawPinching, "SDK pinch alone does not supply the raw sustaining-finger evidence");
+                for (int i = 0; i < 8; i++) TossMotion(r, Vector3.up);
+                Check(r.H._tossGate == null || r.H._tossGate.State != GateState.Armed,
+                    "invalid ownership or absent raw sustaining pinch cannot arm");
+                ReleaseToss(r);
+                TossNextFrame(r);
+                Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0, "repair without a new grab cannot create Toss");
+            }
+        }
+
+        private static void TossStaggeredPinch()
+        {
+            for (int order = 0; order < 3; order++)
+            {
+                var r = new TossRig();
+                if (order == 0) Array.Clear(r.Raw.Data.IsFingerPinching, 0, 5);
+                SelectToss(r);
+                if (order == 0)
+                {
+                    for (int i = 0; i < 4; i++) TossMotion(r, Vector3.up);
+                    Check(!r.H._tossBlocked && r.H._tossGate.State == GateState.Grabbed,
+                        "SDK geometry may select before raw pinch; no intent without raw confirmation");
+                    SetPinch(r, true);
+                }
+                ArmToss(r);
+                AdvanceTossClock();
+                if (order == 1) Array.Clear(r.Raw.Data.IsFingerPinching, 0, 5);
+                if (order == 2) { r.Api.SyntheticPinch = false; r.Api.SyntheticUnselectEdge = true; }
+                r.H.LateUpdate();
+                ReleaseToss(r);
+                CheckTossPending(r);
+                TossNextFrame(r);
+                Check(r.H._state == FingerPlayState.Flight, "nearby edges need not share the exact callback");
+                CheckNoLegacyTossPhysics(r, 1);
+            }
+        }
+
+        private static void TossReleasePoseSafety()
+        {
+            for (int variant = 0; variant < 5; variant++)
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                Vector3 safePosition = r.H.transform.position;
+                if (variant >= 3) ReleaseToss(r);
+                if (variant == 0 || variant == 3) r.H.transform.position += new Vector3(1, 0, 0);
+                if (variant == 1 || variant == 4) r.H.transform.position = new Vector3(float.NaN, 0, 0);
+                if (variant == 2) r.H.transform.rotation = new Quaternion(0, 0, 0, float.PositiveInfinity);
+                if (variant < 3) ReleaseToss(r);
+                TossNextFrame(r);
+                CheckTossStopped(r, 0);
+                Check(r.H.transform.position.Equals(safePosition), "corrupt release pose recovers to last finite held pose");
+                Check(r.H.Filter(r.Source.gameObject), "corrupt release leaves coin regrabbable");
+            }
+        }
+
+        private static void TossInvalidRaw()
+        {
+            var corruptions = new Action<HandDataAsset>[]
+            {
+                d => d.IsDataValid = false, d => d.IsConnected = false, d => d.IsTracked = false,
+                d => d.IsHighConfidence = false, d => d.RootPoseOrigin = PoseOrigin.None,
+                d => d.RootPoseOrigin = PoseOrigin.FilteredTrackedPose, d => d.RootPoseOrigin = PoseOrigin.SyntheticPose,
+                d => d.Root = new Pose(new Vector3(float.NaN, 0, 0), Quaternion.identity),
+                d => d.Root = new Pose(Vector3.zero, new Quaternion(0, 0, 0, float.PositiveInfinity)),
+                d => d.IsFingerHighConfidence[0] = false, d => d.IsFingerHighConfidence[1] = false,
+                d => d.IsFingerHighConfidence[2] = false, d => d.IsFingerHighConfidence[3] = false,
+                d => d.IsFingerHighConfidence[4] = false
+            };
+            for (int i = 0; i < corruptions.Length; i++)
+            foreach (bool atSelection in new[] { true, false })
+            {
+                var r = new TossRig();
+                if (!atSelection) { SelectToss(r); ArmToss(r); }
+                corruptions[i](r.Raw.Data);
+                Check(r.Hand.IsConnected && r.Hand.IsHighConfidence && r.Hand.IsTrackedDataValid,
+                    "fixture fallback IHand flags remain valid over corrupt raw input");
+                if (atSelection) SelectToss(r);
+                // The other branch corrupts data immediately before Unselect, with no intervening
+                // LateUpdate: the real release callback must re-read raw validity, not trust fallback flags.
+                ReleaseToss(r);
+                Check(r.H._tossBlocked, "raw validity veto wins, flag=" + i + " atSelection=" + atSelection);
+                TossNextFrame(r);
+                CheckTossStopped(r, 0);
+            }
+        }
+
+        private static void TossFrozenRaw()
+        {
+            foreach (bool previouslyArmed in new[] { false, true })
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                if (previouslyArmed) ArmToss(r);
+                double changedAt = r.H._rawChangedAt;
+                long gateEvents = r.H._tossGate.EventSequence;
+                int version = r.Hand.CurrentDataVersion;
+                Pose frozen = r.Raw.Data.Root;
+                // Let both freshness and armed hold windows expire; callbacks and versions keep advancing.
+                for (int i = 0; i < 8; i++) TossMotion(r, Vector3.zero, false);
+                for (int i = 0; i < 10; i++) TossMotion(r, Vector3.up, false);
+                Check(r.Hand.CurrentDataVersion > version && r.Raw.Data.Root.Equals(frozen), "raw content frozen despite growing DataVersion");
+                Near(r.H._rawChangedAt, changedAt, 0, "version growth does not refresh raw-content timestamp");
+                Check(r.H._tossGate.EventSequence == gateEvents, "version-only frames never become new gate evidence");
+                ReleaseToss(r); // The event-driven gate evaluates expiration when release arrives.
+                TossNextFrame(r);
+                Check(r.H._tossGate.IntentsAccepted == 0 && TossEvents(r, "TOSS_PENDING") == 0
+                    && TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0, "fresh release edge cannot rescue frozen evidence");
+            }
+        }
+        private static void TossCancelOrdering()
+        {
+            for (int order = 0; order < 4; order++)
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                bool nested = false;
+                if (order < 2)
+                {
+                    int hook = order;
+                    Audit.OnLog = message =>
+                    {
+                        bool matches = hook == 0 ? message.Contains("RELEASE_PROVENANCE") && message.Contains("event=Unselect")
+                            : message.Contains("TOSS_PENDING");
+                        if (!matches) return;
+                        Audit.OnLog = null;
+                        nested = true;
+                        r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                    };
+                }
+                try { ReleaseToss(r); }
+                finally { Audit.OnLog = null; }
+                if (order < 2) Check(nested, "Cancel really reentered Unselect callback, order=" + order);
+                else
+                {
+                    CheckTossPending(r);
+                    if (order == 3) AdvanceTossClock(); // Cancel on next frame, still before LateUpdate confirmation.
+                    r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                }
+                TossNextFrame(r);
+                CheckTossStopped(r, 0);
+                Check(r.H.Filter(r.Source.gameObject), "Cancel recovery leaves clean idle regrabbable");
+                for (int i = 0; i < 3; i++)
+                {
+                    r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, new Pose()));
+                    r.H.HandlePointerEvent(new PointerEvent(Owner, PointerEventType.Cancel, new Pose()));
+                }
+                CheckNoLegacyTossPhysics(r, 0);
+            }
+        }
+
+        private static void TossContinuity()
+        {
+            var interruptions = new Action<TossRig>[]
+            {
+                r => r.Source.Identifier++,
+                r => r.Source.Hand = new HandRef { Hand = r.Fallback },
+                r => r.Source.HandGrabApi = new HandGrabAPI { Hand = r.Hand, SyntheticPinch = true },
+                r => r.Api.Hand = r.Fallback,
+                r => r.Fallback.ModifyDataFromSource = new FromOVRHandDataSource(),
+                r => r.Api.SyntheticPalm = true,
+                r => r.Source.enabled = false,
+                r => r.Source.gameObject.activeInHierarchy = false,
+                r => r.Source.State = InteractorState.Disabled,
+                r => r.Target.enabled = false,
+                r => r.Api.enabled = false,
+                r => r.Raw.enabled = false,
+                r => r.Target.PointableElement = new Grabbable(),
+                r => r.Source.SelectedInteractable = new HandGrabInteractable(),
+                r => r.H._grabbable.SelectingPoints.Clear(),
+                r => r.H._grabbable.SelectingPoints.Add(new Pose()),
+                r => Time.realtimeSinceStartupAsDouble += .101
+            };
+            for (int i = 0; i < interruptions.Length; i++)
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                var dataSource = r.Fallback.ModifyDataFromSource;
+                interruptions[i](r);
+                r.H.LateUpdate();
+                Check(r.H._tossBlocked, "held interruption blocks observed sequence, variant=" + i);
+                // Restore external identities/activity without a new grab. The veto must remain latched.
+                r.Source.Identifier = Owner;
+                r.Source.Hand = r.Hand;
+                r.Source.HandGrabApi = r.Api;
+                r.Api.Hand = r.Hand;
+                r.Fallback.ModifyDataFromSource = dataSource;
+                r.Api.SyntheticPalm = false;
+                r.Source.enabled = r.Source.gameObject.activeInHierarchy = true;
+                r.Source.State = InteractorState.Select;
+                r.Target.enabled = r.Api.enabled = r.Raw.enabled = true;
+                r.Target.PointableElement = r.H._grabbable;
+                r.Source.SelectedInteractable = r.Target;
+                r.H._grabbable.SelectingPoints.Clear();
+                r.H._grabbable.SelectingPoints.Add(new Pose());
+                TossMotion(r, Vector3.up);
+                ReleaseToss(r);
+                TossNextFrame(r);
+                CheckTossStopped(r, 0);
+            }
+        }
+
+        private static void TossPendingVetoes()
+        {
+            var vetoes = new Action<TossRig>[]
+            {
+                r => SetPinch(r, true),
+                r => r.Raw.Data.IsFingerPinching[1] = true,
+                r => r.Api.SyntheticPinch = true,
+                r => r.Source.State = InteractorState.Disabled,
+                r => r.Source.State = InteractorState.Select,
+                r => r.Source.enabled = false,
+                r => r.Source.gameObject.activeInHierarchy = false,
+                r => r.Target.enabled = false,
+                r => r.Api.enabled = false,
+                r => r.Raw.enabled = false,
+                r => r.H._grabbable.SelectingPoints.Add(new Pose()),
+                r => Time.realtimeSinceStartupAsDouble += .101,
+                r => Physics.gravity = new Vector3(0, float.NaN, 0),
+                r => Physics.gravity = new Vector3(0, -21, 0)
+            };
+            for (int i = 0; i < vetoes.Length; i++)
+            {
+                Physics.gravity = new Vector3(0, -9.81f, 0);
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                ReleaseToss(r);
+                CheckTossPending(r);
+                vetoes[i](r);
+                if (i == 3) Check(r.Source.isActiveAndEnabled, "direct SDK Disabled veto is independent of Unity activity");
+                TossNextFrame(r);
+                CheckTossStopped(r, 0);
+                Check(TossEvents(r, "TOSS_RECOVERY") == 1, "pending veto recovers once, variant=" + i);
+                if (r.H.GetSelectingPointsCount() > 0)
+                {
+                    Check(r.H._selectionRecoveryLocked && !r.H.Filter(r.Source.gameObject), "real remaining selection retains safe filter lock");
+                    r.H._grabbable.SelectingPoints.Clear();
+                    TossNextFrame(r);
+                }
+                Check(r.H.Filter(r.Source.gameObject), "clean idle after pending veto permits regrab");
+            }
+            Physics.gravity = new Vector3(0, -9.81f, 0);
+        }
+
+        private static void TossLaunchCaps()
+        {
+            var r = FlyingToss(5, 40);
+            Near(r.H._rigidbody.linearVelocity.magnitude, 3, 1e-5, "linear launch capped at 3 m/s");
+            Near(r.H._rigidbody.angularVelocity.magnitude, 25, 1e-4, "spin launch capped at 25 rad/s");
+            Near(r.H._rigidbody.maxAngularVelocity, 25, 0, "body angular limit raised only for flight");
+            Near(r.H._rigidbody.linearDamping, .02, 1e-7, "flight linear damping, not settle damping");
+            Near(r.H._rigidbody.angularDamping, .05, 1e-7, "flight angular damping, not settle damping");
+            for (int i = 0; i < 3; i++) { r.H.FixedUpdate(); r.H.LateUpdate(); }
+            CheckNoLegacyTossPhysics(r, 1);
+        }
+
+        private static void TossFlightLimits()
+        {
+            var limits = new Action<TossRig>[]
+            {
+                r => Time.realtimeSinceStartupAsDouble += 1.251,
+                r => Time.realtimeSinceStartupAsDouble -= 1,
+                r => r.H.transform.position = r.H._flightOrigin + new Vector3(.751f, 0, 0),
+                r => { r.H.transform.position = r.H._flightOrigin + new Vector3(.72f, 0, 0);
+                       r.H._rigidbody.SupplyVelocity(new Vector3(3, 0, 0), Vector3.zero); },
+                r => r.H.transform.position = r.H._flightOrigin + new Vector3(0, .81f, 0),
+                r => r.H.transform.position = r.H._flightOrigin + new Vector3(0, -.16f, 0),
+                r => { Time.realtimeSinceStartupAsDouble += .06;
+                       r.H._rigidbody.SupplyVelocity(new Vector3(0, -.1f, 0), Vector3.zero); },
+                r => r.H._rigidbody.SupplyVelocity(new Vector3(0, 6.01f, 0), Vector3.zero),
+                r => r.H._rigidbody.SupplyVelocity(Vector3.up, new Vector3(0, 25.02f, 0)),
+                r => r.H.transform.position = new Vector3(float.NaN, 0, 0),
+                r => r.H.transform.position = new Vector3(0, float.PositiveInfinity, 0),
+                r => r.H.transform.rotation = new Quaternion(0, float.NaN, 0, 1),
+                r => r.H._rigidbody.SupplyVelocity(new Vector3(float.NegativeInfinity, 0, 0), Vector3.zero),
+                r => r.H._rigidbody.SupplyVelocity(Vector3.up, new Vector3(0, float.NaN, 0)),
+                r => Physics.gravity = new Vector3(0, float.PositiveInfinity, 0),
+                r => Physics.gravity = new Vector3(0, -21, 0),
+                r => Time.fixedDeltaTime = 0,
+                r => Time.fixedDeltaTime = -.01f,
+                r => Time.fixedDeltaTime = .101f,
+                r => Time.fixedDeltaTime = float.NaN,
+                r => Time.fixedDeltaTime = float.PositiveInfinity
+            };
+            for (int i = 0; i < limits.Length; i++)
+            foreach (bool fixedFirst in new[] { false, true })
+            {
+                Physics.gravity = new Vector3(0, -9.81f, 0);
+                Time.fixedDeltaTime = .02f;
+                var r = FlyingToss();
+                limits[i](r);
+                if (fixedFirst) r.H.FixedUpdate(); else r.H.LateUpdate();
+                CheckTossStopped(r, 1);
+                Check(r.H.transform.position.Equals(r.H._flightOrigin) && r.H.transform.rotation.Equals(r.H._flightRotation),
+                    "flight limit restores release pose, variant=" + i);
+                Check(r.H._rigidbody.position.Equals(r.H._flightOrigin) && r.H._rigidbody.rotation.Equals(r.H._flightRotation),
+                    "recovery restores body pose as well as transform");
+                Check(r.H.Filter(r.Source.gameObject), "flight limit leaves coin regrabbable");
+                r.H.LateUpdate();
+                r.H.FixedUpdate();
+                Check(TossEvents(r, "TOSS_RECOVERY") == 1, "LateUpdate and FixedUpdate cannot recover or settle twice");
+            }
+            Physics.gravity = new Vector3(0, -9.81f, 0);
+            Time.fixedDeltaTime = .02f;
+        }
+
+        private static void RegrabToss(TossRig r)
+        {
+            Check(r.H.Filter(r.Source.gameObject), "Filter permits a fresh grab after recovery");
+            SetPinch(r, true);
+            r.Source.TargetInteractable = r.Source.SelectedInteractable = r.Target;
+            r.Raw.Data.Root = r.H.transform.GetPose();
+            SelectToss(r);
+            Check(!r.H._tossBlocked && !r.H._tossReleaseConsumed && r.H._tossGate.State == GateState.Grabbed,
+                "actual OnGrabBegin resets observation and previous release latch");
+        }
+
+        private static void TossRecoveryRegrab()
+        {
+            var r = FlyingToss();
+            r.H.transform.position = r.H._flightOrigin + new Vector3(0, -.16f, 0);
+            TossNextFrame(r);
+            CheckTossStopped(r, 1);
+            RegrabToss(r);
+            Check(r.H._motionSamples.Count == 0 && !r.H._hasPrevSample, "real regrab starts with no flight history");
+            ArmToss(r);
+            ReleaseToss(r);
+            Check(r.H._state == FingerPlayState.ReleasePending, "new grab can propose a new pending release");
+            TossNextFrame(r);
+            Check(r.H._state == FingerPlayState.Flight && r.H._tossGate.IntentsAccepted == 2,
+                "second grab launches once with new evidence");
+            CheckNoLegacyTossPhysics(r, 2);
+        }
+
+        private static void TossDisable()
+        {
+            foreach (bool flight in new[] { false, true })
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                ReleaseToss(r);
+                if (flight) TossNextFrame(r);
+                r.H.enabled = false;
+                r.H.OnDisable();
+                CheckTossStopped(r, flight ? 1 : 0);
+                Check(r.H._tossSource == null && r.H._tossRaw == null && r.H._tossGate.State == GateState.Ready,
+                    "OnDisable resets raw references and canonical gate");
+                Check(r.H._grabbable.SubscriberCount == 0 && !r.H._isSubscribed, "OnDisable unsubscribes actual callback");
+                Check(!r.H.Filter(r.Source.gameObject), "disabled harness rejects selectors");
+                r.H.OnDisable();
+                TossNextFrame(r);
+                Check(TossEvents(r, "TOSS_RECOVERY") == 1, "repeat disable/frames cannot recover twice");
+                r.H.enabled = true;
+                r.H.Subscribe();
+                RegrabToss(r);
+            }
+            foreach (bool sdkRemoves in new[] { true, false })
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                r.H._grabbable.SyntheticCancelRemovesSelection = sdkRemoves;
+                r.H.enabled = false;
+                r.H.OnDisable();
+                Check(r.H._grabbable.ProcessedEvents == 2 && r.H._grabbable.SubscriberCount == 0,
+                    "held OnDisable issues SDK Cancel before unsubscribing");
+                Check(r.H._selectionRecoveryLocked == !sdkRemoves && !r.H._coinPresenter.enabled,
+                    "held disable does not pretend SDK selection disappeared");
+                CheckNoLegacyTossPhysics(r, 0);
+            }
+        }
+
+        private static void TossReset()
+        {
+            foreach (bool flight in new[] { false, true })
+            {
+                var r = new TossRig();
+                SelectToss(r);
+                ArmToss(r);
+                r.H.ResetToInitialPose();
+                Check(r.H._state == FingerPlayState.Grabbed && !r.H._coinPresenter.enabled,
+                    "Reset remains rejected while real selection exists");
+                ReleaseToss(r);
+                if (flight) TossNextFrame(r);
+                r.H.ResetToInitialPose();
+                Check(r.H._state == FingerPlayState.Showcase && r.H._coinPresenter.enabled,
+                    "explicit Reset alone restores showcase and presenter (not ordinary recovery)");
+                Check(r.H.transform.position.Equals(r.H._initialPosition) && r.H.transform.rotation.Equals(r.H._initialRotation),
+                    "explicit Reset returns to initial, not release pose");
+                Check(r.H._rigidbody.isKinematic && !r.H._rigidbody.useGravity && r.H._rigidbody.maxAngularVelocity == 7,
+                    "Reset safely ends flight and restores angular limit");
+                Vec(r.H._rigidbody.linearVelocity, 0, 0, 0, 0, "Reset clears linear flight velocity");
+                Vec(r.H._rigidbody.angularVelocity, 0, 0, 0, 0, "Reset clears angular flight velocity");
+                Check(r.H._tossSource == null && r.H._tossRaw == null && r.H._tossGate.State == GateState.Ready,
+                    "Reset drops cached source and gate evidence");
+                Check(r.H._motionSamples.Count == 0 && !r.H._hasPrevSample, "Reset clears held motion history");
+                TossNextFrame(r);
+                Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == (flight ? 1 : 0) && TossEvents(r, "SETTLE_BEGIN") == 0,
+                    "Reset cannot relaunch pending evidence or start old settle");
+                RegrabToss(r);
+            }
+        }
+
+        private static void TossToggleOff()
+        {
+            for (int phase = 0; phase < 4; phase++)
+            {
+                var r = new TossRig();
+                if (phase == 0) r.H._enableToss = false;
+                SelectToss(r);
+                if (phase == 0)
+                {
+                    r.H._enableToss = true; // Enabling halfway through a grab cannot invent Select-time evidence.
+                    for (int i = 0; i < 8; i++) TossMotion(r, Vector3.up);
+                    Check(r.H._tossSource == null, "toggle on requires a new eligible grab");
+                }
+                else ArmToss(r);
+                if (phase == 1) r.H._enableToss = false;
+                ReleaseToss(r);
+                if (phase < 2)
+                {
+                    TossNextFrame(r);
+                    Check(r.H._state == FingerPlayState.Settling && !r.H._rigidbody.useGravity
+                        && TossEvents(r, "FINGER_PLAY_RELEASE") == 1 && TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0,
+                        "off before release preserves old release exactly once");
+                }
+                else
+                {
+                    if (phase == 3) TossNextFrame(r);
+                    r.H._enableToss = false;
+                    TossNextFrame(r);
+                    CheckTossStopped(r, phase == 3 ? 1 : 0);
+                    Check(r.H.Filter(r.Source.gameObject), "toggle-off recovery permits ordinary regrab");
+                }
+            }
         }
 #endif
 

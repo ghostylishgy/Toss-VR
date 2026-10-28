@@ -550,6 +550,7 @@ MonoBehaviour:
   _currentOwnerInteractorGo: {fileID: 0}
   _selectionRecoveryLocked: 0
   interpolationMode: 1
+  _enableToss: 1
 --- !u!114 &403758653
 MonoBehaviour:
   m_ObjectHideFlags: 0

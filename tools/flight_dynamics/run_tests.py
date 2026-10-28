@@ -13,7 +13,7 @@ LABEL = "P2 FLIGHT DYNAMICS ISOLATED | NOT INTEGRATED | NOT RUNTIME VALIDATED | 
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
 
 
 def main():

@@ -722,6 +722,7 @@ namespace Toss.Editor
             if (hPresProp != null) hPresProp.objectReferenceValue = presenter;
             var hRbProp = soHarness.FindProperty("_rigidbody");
             if (hRbProp != null) hRbProp.objectReferenceValue = rb;
+            soHarness.FindProperty("_enableToss").boolValue = true;
             soHarness.ApplyModifiedProperties();
             EditorUtility.SetDirty(harness);
 

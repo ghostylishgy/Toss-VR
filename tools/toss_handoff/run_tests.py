@@ -13,7 +13,7 @@ LABEL = "P2 HANDOFF ISOLATED | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG /
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
     roslyn = data / "DotNetSdkRoslyn/csc.dll"
     netstandard = data / "NetStandard/ref/2.1.0/netstandard.dll"
     refs = [framework / (n + ".dll") for n in ("mscorlib", "System", "System.Core", "System.Numerics", "System.Numerics.Vectors")]
-    gate = ROOT / "tools/toss_intent/TossIntentGate.cs"
+    gate = ROOT / "Assets/Scripts/Coin/TossIntentGate.cs"
     flight = ROOT / "tools/flight_dynamics/FlightDynamics.cs"
     handoff, tests = HERE / "TossHandoff.cs", HERE / "TossHandoffTests.cs"
     implementation = [gate, flight, handoff]

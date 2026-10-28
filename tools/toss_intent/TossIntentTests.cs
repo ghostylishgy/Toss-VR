@@ -1,4 +1,4 @@
-// P2 TOSS INTENT ISOLATED PROTOTYPE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT
+// P2 TOSS INTENT OFFLINE TESTS | SYNTHETIC INPUT ONLY | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT
 // Each case states why the gate accepts or rejects. They prove rules on synthetic deterministic input,
 // not that real hands behave this way.
 using System;
@@ -112,7 +112,7 @@ namespace Toss.Experiments.TossIntent
 
         public static int Main()
         {
-            Console.WriteLine("P2 TOSS INTENT GATE | OFFLINE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT");
+            Console.WriteLine("P2 TOSS INTENT GATE | OFFLINE | SYNTHETIC INPUT ONLY | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT");
 
             Case("1. Ordinary finger play never produces a toss", () =>
             {
@@ -422,7 +422,7 @@ namespace Toss.Experiments.TossIntent
 
             Console.WriteLine("OFFLINE RESULT: " + _passed + "/" + _cases + " cases passed, assertions=" + _assertions
                 + ", failed assertions=" + Failures.Count);
-            Console.WriteLine("RULES ON SYNTHETIC INPUT ONLY | P2 TOSS INTENT ISOLATED PROTOTYPE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT");
+            Console.WriteLine("RULES ON SYNTHETIC INPUT ONLY | P2 TOSS INTENT OFFLINE TESTS | SYNTHETIC INPUT ONLY | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT");
             return Failures.Count == 0 ? 0 : 1;
         }
     }

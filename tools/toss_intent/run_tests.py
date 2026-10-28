@@ -1,6 +1,6 @@
-"""P2 Toss Intent Gate isolated prototype: compile and run the deterministic gate tests offline.
+"""P2 Toss Intent Gate: compile and run offline tests against the canonical Unity source.
 
-P2 TOSS INTENT ISOLATED PROTOTYPE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT
+P2 TOSS INTENT OFFLINE TESTS | SYNTHETIC INPUT ONLY | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT
 Uses only compilers bundled with an installed Unity Editor; Unity itself is never started. Artifacts go to a
 fresh temp directory. Nothing inside the repository is written.
 Usage: python tools/toss_intent/run_tests.py --unity-editor <Editor dir containing Unity.exe>
@@ -15,11 +15,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-LABEL = "P2 TOSS INTENT ISOLATED PROTOTYPE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT"
+LABEL = "P2 TOSS INTENT OFFLINE TESTS | SYNTHETIC INPUT ONLY | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT"
 
 
 def sha256(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).is_file() else None
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
     roslyn = data / "DotNetSdkRoslyn/csc.dll"
     netstandard = data / "NetStandard/ref/2.1.0/netstandard.dll"
     refs = [framework / (n + ".dll") for n in ("mscorlib", "System", "System.Core", "System.Numerics", "System.Numerics.Vectors")]
-    gate, tests = HERE / "TossIntentGate.cs", HERE / "TossIntentTests.cs"
+    gate, tests = ROOT / "Assets/Scripts/Coin/TossIntentGate.cs", HERE / "TossIntentTests.cs"
     sources = [gate, tests, Path(__file__).resolve()]
     for p in [mono, csc, dotnet, roslyn, netstandard, *refs, *sources]:
         if not p.is_file():

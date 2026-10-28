@@ -1,8 +1,4 @@
-// P2 TOSS INTENT ISOLATED PROTOTYPE | NOT INTEGRATED | NOT RUNTIME VALIDATED | NO RNG / NO PHYSICS FLIGHT
-// Deterministic event-driven gate that separates a Finger Play release from an intentional upward toss.
-// It only proposes a TossIntent event. It never generates a result, calls RNG, writes a Rigidbody, moves a
-// Transform or drives Catch. "Flight" here is a legal logical transition, not a running physics flight.
-// All thresholds are experiment parameters, not frozen product values.
+// Proposes toss intent only; does not drive physics or generate a result.
 using System;
 using System.Collections.Generic;
 using System.Numerics;

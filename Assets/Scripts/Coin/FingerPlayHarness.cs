@@ -4,6 +4,9 @@ using UnityEngine;
 using Oculus.Interaction;
 using Oculus.Interaction.HandGrab;
 using Oculus.Interaction.Input;
+using Oculus.Interaction.GrabAPI;
+using Oculus.Interaction.Grab;
+using Toss.Experiments.TossIntent;
 
 namespace Toss.Coin
 {
@@ -18,24 +21,16 @@ namespace Toss.Coin
         ResidualSettle
     }
 
-    /// <summary>
-    /// Minimal internal lifecycle states for Finger Play (strictly no premature Toss state machine).
-    /// </summary>
     public enum FingerPlayState
     {
         Showcase,
         Grabbed,
         Settling,
-        Settled
+        Settled,
+        ReleasePending,
+        Flight
     }
 
-    /// <summary>
-    /// P1.2 Finger Play Experimental Harness:
-    /// Detachable, experimental harness verifying Grab, Manipulate, and Release / Settle in VR / Meta XR Simulator.
-    /// Manages interaction state, authority handoff with CoinPresenter, motion sampling, and enforces single-owner policy.
-    /// Implements IGameObjectFilter to reject secondary interactors directly at the SDK selection boundary.
-    /// Strictly adheres to Zero-UI, no fake inputs, no premature Toss state machine.
-    /// </summary>
     [DisallowMultipleComponent]
     public class FingerPlayHarness : MonoBehaviour, IGameObjectFilter
     {
@@ -131,6 +126,44 @@ namespace Toss.Coin
         private bool _provenanceCancelObserved;
         private int _provenanceLastMotionFrame = -1;
 
+        [Header("Experimental Near Pinch Toss (Not Runtime Validated)")]
+        [Tooltip("Off preserves P1.2C. On permits conservative near-hand pinch Toss only; no result or catch.")]
+        [SerializeField] private bool _enableToss = false;
+
+        private const double TossInputWindow = 0.10;
+        private const float TossLaunchSpeed = 3f;
+        private const float TossFlightSpeed = 6f;
+        private const float TossSpinSpeed = 25f;
+        private const double TossFlightDuration = 1.25;
+        private const float TossRadius = 0.75f;
+        private const float TossHeight = 0.8f;
+        private TossIntentGate _tossGate;
+        private HandGrabInteractor _tossSource;
+        private HandGrabInteractable _tossTarget;
+        private HandGrabAPI _tossApi;
+        private IHand _tossHand;
+        private FromOVRHandDataSource _tossRaw;
+        private int _tossOwnerId = -1;
+        private bool _tossBlocked;
+        private bool _tossReleaseConsumed;
+        private bool _rawPinching;
+        private bool _sdkPinching;
+        private Pose _lastRawPose;
+        private HandFingerFlags _lastRawPinches;
+        private double _rawChangedAt;
+        private double _rawObservedAt;
+        private double _rawReleaseAt = double.NegativeInfinity;
+        private double _sdkReleaseAt = double.NegativeInfinity;
+        private double _tossSampleAt;
+        private double _pendingAt;
+        private int _pendingFrame;
+        private Vector3 _tossVelocity;
+        private Vector3 _tossAngularVelocity;
+        private Vector3 _flightOrigin;
+        private Quaternion _flightRotation;
+        private double _flightStartedAt;
+        private float _savedMaxAngularVelocity;
+
         #region Motion Sampling
         private struct MotionSample
         {
@@ -173,6 +206,9 @@ namespace Toss.Coin
 
         private void OnDisable()
         {
+            if (_state == FingerPlayState.Flight || _state == FingerPlayState.ReleasePending)
+                RecoverToss("HarnessDisabled");
+            ResetTossObservation();
             int selectionCount = GetSelectingPointsCount();
             int ownerToCancel = _currentOwnerId;
             if (ownerToCancel == -1 && selectionCount > 0)
@@ -308,10 +344,37 @@ namespace Toss.Coin
         {
             if (!Application.isPlaying) return;
 
-            if (_state == FingerPlayState.Settling)
+            if (_state == FingerPlayState.Flight)
+                UpdateTossFlight();
+            else if (_state == FingerPlayState.Settling)
             {
                 UpdateSettlingPhysics();
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (!Application.isPlaying) return;
+            if (_state == FingerPlayState.ReleasePending)
+            {
+                if (Time.frameCount > _pendingFrame) ResolvePendingToss();
+                return;
+            }
+            if (_state == FingerPlayState.Flight)
+            {
+                UpdateTossFlight();
+                return;
+            }
+            if (!_enableToss || _tossSource == null || _state != FingerPlayState.Grabbed) return;
+            ObserveTossInput(true);
+            double now = _rawObservedAt;
+            if (_tossBlocked || !_rawPinching || !_sdkPinching || now <= _tossSampleAt || _rawChangedAt != now) return;
+            _tossSampleAt = now;
+            GetEstimatedVelocities(out Vector3 velocity, out _);
+            bool valid = _hasPrevSample && _provenanceLastMotionFrame == Time.frameCount;
+            _tossGate.Process(GateEvent.Sample(now,
+                new System.Numerics.Vector3(transform.position.x, transform.position.y, transform.position.z),
+                new System.Numerics.Vector3(velocity.x, velocity.y, velocity.z), MotionFrame.WorldYUp, valid));
         }
 
         private void EnsureReferences()
@@ -453,6 +516,7 @@ namespace Toss.Coin
         /// </summary>
         public bool Filter(GameObject interactorGo)
         {
+            if (_state == FingerPlayState.ReleasePending || _state == FingerPlayState.Flight) return false;
             // Rule 1: If harness component is disabled or inactive, reject all selectors
             if (!isActiveAndEnabled)
             {
@@ -525,8 +589,8 @@ namespace Toss.Coin
             _currentOwnerInteractorGo = null;
             _activeHand = "None";
 
-            // If not actively settling, ensure Rigidbody is safely locked kinematic
-            if (_state != FingerPlayState.Settling)
+            // Flight and settling are mutually exclusive dynamic owners.
+            if (_state != FingerPlayState.Settling && _state != FingerPlayState.Flight)
             {
                 if (_rigidbody != null)
                 {
@@ -545,6 +609,14 @@ namespace Toss.Coin
 
         private void HandlePointerEvent(PointerEvent evt)
         {
+            if (evt.Type == PointerEventType.Cancel && evt.Identifier == _tossOwnerId)
+            {
+                _tossBlocked = true;
+                if (_state == FingerPlayState.ReleasePending || _state == FingerPlayState.Flight)
+                    RecoverToss("Cancel");
+            }
+            if (evt.Type == PointerEventType.Select && _currentOwnerId != -1)
+                _tossBlocked = true;
             ObserveReleaseProvenance(evt);
             switch (evt.Type)
             {
@@ -583,6 +655,9 @@ namespace Toss.Coin
 
         private void OnGrabBegin(PointerEvent evt)
         {
+            if (_state == FingerPlayState.Flight || _state == FingerPlayState.ReleasePending)
+                RecoverToss("SelectionDuringFlight");
+            ResetTossObservation();
             if (_state == FingerPlayState.Settling)
             {
                 // Re-grab during settling: immediately cancel settling physics before handing authority to GrabFreeTransformer
@@ -607,6 +682,7 @@ namespace Toss.Coin
             _activeHand = ResolveActiveHand(evt.Pose.position, out GameObject handGo);
             EnterInteractionAuthority(evt.Identifier, handGo);
             CacheReleaseProvenance(evt.Identifier);
+            BeginTossObservation();
 
             Debug.Log($"[FingerPlayHarness] FINGER_PLAY_GRAB_BEGIN (Hand: {_activeHand}, Identifier: {evt.Identifier})");
         }
@@ -718,6 +794,10 @@ namespace Toss.Coin
 
         private void OnGrabCancel(PointerEvent evt)
         {
+            _tossBlocked = true;
+            _tossReleaseConsumed = true;
+            if (_state == FingerPlayState.Flight || _state == FingerPlayState.ReleasePending)
+                RecoverToss("GrabCancelled");
             string cancelledHand = _activeHand;
             _state = FingerPlayState.Settled;
             _motionSamples.Clear();
@@ -743,6 +823,46 @@ namespace Toss.Coin
 
         private void OnGrabEnd(PointerEvent evt)
         {
+            if (_state == FingerPlayState.ReleasePending || _state == FingerPlayState.Flight) return;
+            if (_enableToss && _tossSource != null && evt.Identifier == _tossOwnerId)
+            {
+                if (_tossReleaseConsumed) return;
+                _tossReleaseConsumed = true;
+                if (!IsFiniteVector(transform.position) || !IsFiniteRotation(transform.rotation)
+                    || (_hasPrevSample && Vector3.Distance(transform.position, _prevSamplePosition) > 0.25f))
+                {
+                    _flightOrigin = _hasPrevSample ? _prevSamplePosition : _initialPosition;
+                    _flightRotation = _hasPrevSample ? _prevSampleRotation : _initialRotation;
+                    RecoverToss("ReleasePoseDiscontinuity");
+                    return;
+                }
+                ObserveTossInput(false);
+                if (_tossBlocked || _selectionRecoveryLocked)
+                {
+                    OnGrabCancel(evt);
+                    return;
+                }
+                double now = Time.realtimeSinceStartupAsDouble;
+                var intent = _tossGate.Process(GateEvent.Release(now));
+                if (intent.TossIntentAccepted && now - _rawReleaseAt <= TossInputWindow
+                    && now - _sdkReleaseAt <= TossInputWindow && !_rawPinching && !_sdkPinching
+                    && now - _rawChangedAt <= TossInputWindow && _rigidbody != null
+                    && IsFiniteVector(transform.position) && IsFiniteRotation(transform.rotation))
+                {
+                    GetEstimatedVelocities(out _tossVelocity, out _tossAngularVelocity);
+                    if (_tossVelocity.y >= 0.25f)
+                    {
+                        _flightOrigin = transform.position;
+                        _flightRotation = transform.rotation;
+                        _pendingAt = now;
+                        _pendingFrame = Time.frameCount;
+                        _state = FingerPlayState.ReleasePending;
+                        ExitInteractionAuthority();
+                        Debug.Log("[FingerPlayHarness] TOSS_PENDING evidence=NearPinchRawEdgeAndIntent heuristic=True");
+                        return;
+                    }
+                }
+            }
             string releasedHand = _activeHand;
 
             // If in locked recovery state, strictly maintain safe kinematic hold
@@ -807,6 +927,194 @@ namespace Toss.Coin
                 ExitInteractionAuthority();
                 Debug.Log($"[FingerPlayHarness] FINGER_PLAY_GRAB_END (Hand: {releasedHand}, Identifier: {evt.Identifier})");
             }
+        }
+
+        private void ResetTossObservation()
+        {
+            _tossGate?.Process(GateEvent.Reset());
+            _tossSource = null;
+            _tossTarget = null;
+            _tossApi = null;
+            _tossHand = null;
+            _tossRaw = null;
+            _tossOwnerId = -1;
+            _tossBlocked = false;
+            _tossReleaseConsumed = false;
+            _rawReleaseAt = _sdkReleaseAt = double.NegativeInfinity;
+        }
+
+        private static FromOVRHandDataSource FindRawTossSource(IHand hand)
+        {
+            object current = hand;
+            for (int depth = 0; depth < 16; depth++)
+            {
+                if (current is FromOVRHandDataSource raw) return raw;
+                if (current is HandRef reference) current = reference.Hand;
+                else if (current is DataModifier<HandDataAsset> modifier) current = modifier.ModifyDataFromSource;
+                else return null;
+            }
+            return null;
+        }
+
+        private void BeginTossObservation()
+        {
+            if (!_enableToss || !(_provenanceSource is HandGrabInteractor source)) return;
+            var target = source.TargetInteractable as HandGrabInteractable;
+            var api = source.HandGrabApi;
+            if (target == null || !ReferenceEquals(target.PointableElement, _grabbable) || api == null
+                || !ReferenceEquals(source.Hand, api.Hand) || (target.SupportedGrabTypes & GrabTypeFlags.Pinch) == 0
+                || !api.IsHandPinchGrabbing(target.PinchGrabRules) || api.IsHandPalmGrabbing(target.PalmGrabRules)) return;
+            var raw = FindRawTossSource(source.Hand);
+            if (raw == null) return;
+            _tossSource = source;
+            _tossTarget = target;
+            _tossApi = api;
+            _tossHand = source.Hand;
+            _tossRaw = raw;
+            _tossOwnerId = _currentOwnerId;
+            _tossGate ??= new TossIntentGate(TossIntentParameters.Experimental(ArmedHoldPolicy.HoldForWindow, 0.10));
+            double now = Time.realtimeSinceStartupAsDouble;
+            _tossGate.Process(GateEvent.GrabBegin(now));
+            _rawChangedAt = _rawObservedAt = _tossSampleAt = now;
+            _rawPinching = false;
+            _sdkPinching = true;
+            ObserveTossInput(true);
+        }
+
+        private void ObserveTossInput(bool held)
+        {
+            if (_tossBlocked) return;
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (!_enableToss || !isActiveAndEnabled || _tossSource == null || !_tossSource.isActiveAndEnabled
+                || _tossSource.State == InteractorState.Disabled || _tossSource.Identifier != _tossOwnerId
+                || _tossTarget == null || !_tossTarget.isActiveAndEnabled || _tossApi == null || !_tossApi.isActiveAndEnabled
+                || _tossRaw == null || !_tossRaw.isActiveAndEnabled || _provenanceCancelObserved
+                || !ReferenceEquals(_tossSource.Hand, _tossHand) || !ReferenceEquals(_tossSource.HandGrabApi, _tossApi)
+                || !ReferenceEquals(_tossApi.Hand, _tossHand) || !ReferenceEquals(FindRawTossSource(_tossHand), _tossRaw)
+                || !ReferenceEquals(_tossTarget.PointableElement, _grabbable)
+                || (held && (_currentOwnerId != _tossOwnerId || GetSelectingPointsCount() != 1
+                    || !ReferenceEquals(_tossSource.SelectedInteractable, _tossTarget)))
+                || now < _rawObservedAt || now - _rawObservedAt > TossInputWindow)
+            {
+                _tossBlocked = true;
+                return;
+            }
+            var data = _tossRaw.GetData();
+            if (!data.IsDataValid || !data.IsConnected || !data.IsTracked || !data.IsHighConfidence
+                || data.RootPoseOrigin != PoseOrigin.RawTrackedPose || !IsFiniteVector(data.Root.position)
+                || !IsFiniteRotation(data.Root.rotation))
+            {
+                _tossBlocked = true;
+                return;
+            }
+            HandFingerFlags pinches = HandFingerFlags.None;
+            for (int finger = 0; finger < 5; finger++)
+            {
+                if (!data.IsFingerHighConfidence[finger]) { _tossBlocked = true; return; }
+                if (data.IsFingerPinching[finger]) pinches |= (HandFingerFlags)(1 << finger);
+            }
+            // Content changes are a conservative freshness proxy, never a sensor timestamp or DataVersion proof.
+            if (!data.Root.position.Equals(_lastRawPose.position) || !data.Root.rotation.Equals(_lastRawPose.rotation)
+                || pinches != _lastRawPinches) _rawChangedAt = now;
+            _lastRawPose = data.Root;
+            _lastRawPinches = pinches;
+            _rawObservedAt = now;
+            bool rawPinching = _tossApi.IsSustainingGrab(_tossTarget.PinchGrabRules, pinches);
+            bool sdkPinching = _tossApi.IsHandPinchGrabbing(_tossTarget.PinchGrabRules);
+            if (_tossApi.IsHandPalmGrabbing(_tossTarget.PalmGrabRules)) _tossBlocked = true;
+            if (_rawPinching && !rawPinching) _rawReleaseAt = now;
+            if (_sdkPinching && !sdkPinching && _tossApi.IsHandUnselectPinchFingersChanged(_tossTarget.PinchGrabRules))
+                _sdkReleaseAt = now;
+            _rawPinching = rawPinching;
+            _sdkPinching = sdkPinching;
+        }
+
+        private void ResolvePendingToss()
+        {
+            ObserveTossInput(false);
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (_tossBlocked || _rawPinching || _sdkPinching || _rigidbody == null
+                || GetSelectingPointsCount() != 0 || _tossSource == null || _tossSource.State == InteractorState.Select
+                || !IsFiniteVector(transform.position) || !IsFiniteRotation(transform.rotation)
+                || Vector3.Distance(transform.position, _flightOrigin) > 0.05f
+                || now - _pendingAt > TossInputWindow || now - _rawChangedAt > TossInputWindow
+                || !IsFiniteVector(Physics.gravity) || Physics.gravity.magnitude > 20f
+                || !IsFiniteVector(_tossVelocity) || !IsFiniteVector(_tossAngularVelocity))
+            {
+                RecoverToss("ReleaseRejected");
+                return;
+            }
+            _tossVelocity = Vector3.ClampMagnitude(_tossVelocity, TossLaunchSpeed);
+            _tossAngularVelocity = Vector3.ClampMagnitude(_tossAngularVelocity, TossSpinSpeed);
+            _savedMaxAngularVelocity = _rigidbody.maxAngularVelocity;
+            _rigidbody.maxAngularVelocity = TossSpinSpeed;
+            _state = FingerPlayState.Flight;
+            _flightStartedAt = now;
+            _rigidbody.isKinematic = false;
+            _rigidbody.useGravity = true;
+            _rigidbody.linearDamping = 0.02f;
+            _rigidbody.angularDamping = 0.05f;
+            _rigidbody.linearVelocity = _tossVelocity;
+            _rigidbody.angularVelocity = _tossAngularVelocity;
+            ResetMotionSampling();
+            Debug.Log("[FingerPlayHarness] TOSS_FLIGHT_BEGIN path=NearHandGrabPinch runtimeValidation=Pending");
+        }
+
+        private void UpdateTossFlight()
+        {
+            double age = Time.realtimeSinceStartupAsDouble - _flightStartedAt;
+            if (!_enableToss || _rigidbody == null || _rigidbody.isKinematic || GetSelectingPointsCount() != 0
+                || age < 0 || age >= TossFlightDuration || !IsFiniteVector(transform.position)
+                || !IsFiniteRotation(transform.rotation) || !IsFiniteVector(_rigidbody.linearVelocity)
+                || !IsFiniteVector(_rigidbody.angularVelocity) || !IsFiniteVector(Physics.gravity)
+                || Physics.gravity.magnitude > 20f || _rigidbody.linearVelocity.magnitude > TossFlightSpeed
+                || _rigidbody.angularVelocity.magnitude > TossSpinSpeed + 0.01f
+                || !IsFinite(Time.fixedDeltaTime) || Time.fixedDeltaTime <= 0 || Time.fixedDeltaTime > 0.1f)
+            {
+                RecoverToss("FlightLimit");
+                return;
+            }
+            Vector3 offset = transform.position - _flightOrigin;
+            Vector3 next = offset + _rigidbody.linearVelocity * Time.fixedDeltaTime
+                + Physics.gravity * (0.5f * Time.fixedDeltaTime * Time.fixedDeltaTime);
+            if (offset.magnitude >= TossRadius || next.magnitude >= TossRadius
+                || offset.y >= TossHeight || next.y >= TossHeight || offset.y < -0.15f || next.y < -0.15f
+                || (age > 0.05 && offset.y <= 0 && _rigidbody.linearVelocity.y < 0))
+                RecoverToss("FlightComplete");
+        }
+
+        private void RecoverToss(string reason)
+        {
+            bool wasFlight = _state == FingerPlayState.Flight;
+            _tossBlocked = true;
+            _tossReleaseConsumed = true;
+            _state = FingerPlayState.Settled;
+            if (_rigidbody != null)
+            {
+                if (!_rigidbody.isKinematic)
+                {
+                    _rigidbody.linearVelocity = Vector3.zero;
+                    _rigidbody.angularVelocity = Vector3.zero;
+                }
+                _rigidbody.isKinematic = true;
+                _rigidbody.useGravity = false;
+                if (wasFlight) _rigidbody.maxAngularVelocity = _savedMaxAngularVelocity;
+            }
+            if (GetSelectingPointsCount() == 0)
+            {
+                transform.SetPositionAndRotation(_flightOrigin, _flightRotation);
+                if (_rigidbody != null)
+                {
+                    _rigidbody.position = _flightOrigin;
+                    _rigidbody.rotation = _flightRotation;
+                }
+            }
+            ResetMotionSampling();
+            _settleTimer = _settleHoldTimer = 0;
+            ExitInteractionAuthority();
+            _selectionRecoveryLocked = GetSelectingPointsCount() > 0;
+            if (_coinPresenter != null) _coinPresenter.enabled = false;
+            Debug.Log($"[FingerPlayHarness] TOSS_RECOVERY reason={reason} grabbable={!_selectionRecoveryLocked}");
         }
 
         private static bool IsFinite(float value)
@@ -1026,6 +1334,9 @@ namespace Toss.Coin
                 return;
             }
 
+            if (_state == FingerPlayState.Flight || _state == FingerPlayState.ReleasePending)
+                RecoverToss("Reset");
+            ResetTossObservation();
             // Cancel settling if active
             if (_state == FingerPlayState.Settling)
             {

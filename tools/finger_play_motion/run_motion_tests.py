@@ -23,18 +23,26 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION = ROOT / "Assets/Scripts/Coin/FingerPlayHarness.cs"
+GATE = ROOT / "Assets/Scripts/Coin/TossIntentGate.cs"
 BACKUP = Path("G:/Dev/Toss-VR_AB_Backup/FingerPlayHarness.P1_2C.cs")
 HERE = Path(__file__).resolve().parent
 METHODS = ["UpdateMotionSampling", "GetEstimatedVelocities", "GetSelectingPointsCount", "OnGrabBegin",
            "OnGrabMove", "OnGrabCancel", "OnGrabEnd", "UpdateSettlingPhysics", "CompleteSettle",
            "EnterInteractionAuthority", "ExitInteractionAuthority", "Update", "FixedUpdate",
            "HandlePointerEvent", "ResyncSelectionState"]
+TOSS_METHODS = ["LateUpdate", "ResetTossObservation", "FindRawTossSource", "BeginTossObservation",
+                "ObserveTossInput", "ResolvePendingToss", "UpdateTossFlight", "RecoverToss", "Filter",
+                "OnDisable", "ResetToInitialPose", "Subscribe", "Unsubscribe"]
 HELPERS = ["IsFinite", "IsFiniteVector", "IsFiniteRotation", "FiniteVelocityOrZero", "ResetMotionSampling",
            "CacheReleaseProvenance", "DescribeProvenanceObject", "ObserveReleaseProvenance"]
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    # Preserve missing tracked paths in both snapshots so source moves remain testable.
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
 
 
 def mask(text):
@@ -61,12 +69,10 @@ def block(text, pattern):
 
 def fixture_source(snippets):
     out = ('// GENERATED OFFLINE FIXTURE: production members copied verbatim; Unity/SDK types are doubles.\n'
-           'using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nusing Oculus.Interaction;\n'
-           'using Oculus.Interaction.HandGrab;\nusing Oculus.Interaction.Input;\n'
-           'namespace Toss.Coin\n{\n')
+           + snippets['imports'][2] + 'namespace Toss.Coin\n{\n')
     out += snippets['ReleaseProfile'][2] + '\n' + snippets['FingerPlayState'][2] + '\n'
     out += '    public partial class FingerPlayHarness : MonoBehaviour\n    {\n' + snippets['fields'][2]
-    out += '\n\n'.join(snippets[name][2] for name in METHODS + HELPERS if name in snippets)
+    out += '\n\n'.join(snippets[name][2] for name in METHODS + HELPERS + TOSS_METHODS if name in snippets)
     out += '\n    }\n}\n'
     return out
 
@@ -87,23 +93,27 @@ def main():
     mono, csc = data / 'MonoBleedingEdge/bin/mono.exe', framework / 'csc.exe'
     references = [framework / (name + '.dll') for name in
                   ('mscorlib', 'System', 'System.Core', 'System.Numerics', 'System.Numerics.Vectors')]
-    needed = [mono, csc, *references, PRODUCTION, BACKUP, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs']
+    needed = [mono, csc, *references, PRODUCTION, GATE, BACKUP, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs']
     for path in needed:
         if not Path(path).is_file():
             parser.error(f'Missing required file: {path}')
 
-    before_production, before_backup = digest(PRODUCTION), digest(BACKUP)
+    before_production, before_backup, before_gate = digest(PRODUCTION), digest(BACKUP), digest(GATE)
     tracked = [p for p in subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT, text=True).split('\0') if p]
     tracked_before = {p: digest(ROOT / p) for p in tracked}
 
     source_bytes = (subprocess.check_output(['git', 'show', args.source_revision + ':' + PRODUCTION.relative_to(ROOT).as_posix()], cwd=ROOT)
                     if args.source_revision else PRODUCTION.read_bytes())
+    gate_bytes = GATE.read_bytes()  # Always compile the actual canonical gate, not a fixture implementation.
     text = source_bytes.decode('utf-8-sig').replace('\r\n', '\n')
-    snippets = {}
+    imports_end = text.index('namespace Toss.Coin')
+    snippets = {'imports': (0, imports_end, text[:imports_end])}
     for enum in ('ReleaseProfile', 'FingerPlayState'):
         snippets[enum] = block(text, rf'^[ \t]*public enum {enum}\b')
-    for method in METHODS:
-        snippets[method] = block(text, rf'^[ \t]*(?:private|public) (?:void|int) {method}\(')
+    toss_enabled = 'ResetTossObservation' in mask(text)
+    assert toss_enabled or args.source_revision, 'Current production must include the Toss lifecycle'
+    for method in METHODS + (TOSS_METHODS if toss_enabled else []):
+        snippets[method] = block(text, rf'^[ \t]*(?:private|public) (?:static )?(?:void|int|bool|FromOVRHandDataSource) {method}\(')
     for helper in HELPERS:
         pattern = rf'^[ \t]*private (?:static )?(?:void|bool|Vector3|string) {helper}\('
         if re.search(pattern, mask(text), re.M):
@@ -111,11 +121,13 @@ def main():
     start, stop = text.index('        [Header("Component References")]'), text.index('        private void Awake()')
     snippets['fields'] = (start, stop, text[start:stop])
 
-    manifest = {'status': ['P1.2C MOTION SAMPLING OFFLINE REGRESSION', 'ISOLATED TEST ONLY',
-                           'PRODUCTION BEHAVIOUR UNCHANGED', 'RUNTIME VALIDATION PENDING'],
+    manifest = {'status': ['FINGER PLAY / TOSS OFFLINE REGRESSION', 'SYNTHETIC INPUT ONLY',
+                           'PRODUCTION SOURCES READ ONLY DURING TESTS', 'RUNTIME VALIDATION PENDING'],
                 'production': {'path': str(PRODUCTION), 'sha256_before': before_production,
                                'source_revision': args.source_revision, 'extracted_sha256': hashlib.sha256(source_bytes).hexdigest(),
-                               'methods_extracted': [n for n in METHODS + HELPERS if n in snippets], 'verbatim_except_line_endings': True},
+                               'methods_extracted': [n for n in METHODS + HELPERS + TOSS_METHODS if n in snippets], 'verbatim_except_line_endings': True},
+                'gate': {'path': str(GATE), 'sha256_before': before_gate,
+                         'compiled_sha256': hashlib.sha256(gate_bytes).hexdigest(), 'verbatim': True},
                 'test_source_sha256': {p.name: digest(p) for p in (HERE / 'MotionTests.cs', HERE / 'MotionDoubles.cs', Path(__file__))},
                 'backup': {'path': str(BACKUP), 'sha256_before': before_backup}, 'limits': [
                     'No Unity/Oculus assemblies, native calls, physics integration or XR input.',
@@ -129,6 +141,9 @@ def main():
     env = dict(os.environ, TEMP=str(out), TMP=str(out), PYTHONDONTWRITEBYTECODE='1')
     print(f'ARTIFACTS {out}')
     print(f'PRODUCTION sha256 {before_production}')
+    print(f'CANONICAL GATE sha256 {before_gate}')
+    gate_fixture = out / 'TossIntentGate.cs'
+    gate_fixture.write_bytes(gate_bytes)
 
     def write(path, content):
         Path(path).write_text(content, encoding='utf-8', newline='\n')
@@ -152,8 +167,10 @@ def main():
         common += [f'/reference:{item}' for item in references]
         if 'CacheReleaseProvenance' in snippets:
             common += ['/define:RELEASE_PROVENANCE']
+        if toss_enabled:
+            common += ['/define:TOSS_LIFECYCLE']
         code, log = step(label + '.compile', [*common, '/target:exe', f'/out:{out}/{label}.Tests.exe',
-                                              fixture, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs'])
+                                              fixture, gate_fixture, HERE / 'MotionDoubles.cs', HERE / 'MotionTests.cs'])
         if code:
             return None
         return step(label + '.run', [mono, out / (label + '.Tests.exe'),
@@ -171,8 +188,8 @@ def main():
     if verified is not None:
         trace_code, trace = step('normal.run', [mono, out / 'baseline.Tests.exe', '--normal-trace'], quiet=True)
         manifest['normal_trace'] = {'exit_code': trace_code, 'sha256': digest(out / 'normal.run.log'),
-                                    'lines': len(trace.splitlines())}
-        success = success and trace_code == 0
+                                    'lines': len(trace.splitlines()), 'expected_lines': 6240}
+        success = success and trace_code == 0 and len(trace.splitlines()) == 6240
         if args.compare_normal:
             identical = (out / 'normal.run.log').read_bytes() == args.compare_normal.read_bytes()
             manifest['normal_trace']['reference'] = str(args.compare_normal)
@@ -181,8 +198,9 @@ def main():
             success = success and identical
         lifecycle_code, lifecycle = step('lifecycle.run', [mono, out / 'baseline.Tests.exe', '--lifecycle-trace'], quiet=True)
         manifest['lifecycle_trace'] = {'exit_code': lifecycle_code, 'sha256': digest(out / 'lifecycle.run.log'),
-                                       'lines': len(lifecycle.splitlines()), 'excludes': 'RELEASE_PROVENANCE logs only'}
-        success = success and lifecycle_code == 0
+                                       'lines': len(lifecycle.splitlines()), 'expected_lines': 192,
+                                       'excludes': 'RELEASE_PROVENANCE logs only'}
+        success = success and lifecycle_code == 0 and len(lifecycle.splitlines()) == 192
         if args.compare_lifecycle:
             identical = (out / 'lifecycle.run.log').read_bytes() == args.compare_lifecycle.read_bytes()
             manifest['lifecycle_trace'].update(reference=str(args.compare_lifecycle), identical=identical)
@@ -225,19 +243,22 @@ def main():
             print(f'DEFECT INJECTION {label}: detected={detected}')
             success = success and detected
 
-    after_production, after_backup = digest(PRODUCTION), digest(BACKUP)
+    after_production, after_backup, after_gate = digest(PRODUCTION), digest(BACKUP), digest(GATE)
     tracked_changed = [p for p, value in tracked_before.items() if digest(ROOT / p) != value]
     manifest['production']['sha256_after'] = after_production
     manifest['production']['unchanged'] = after_production == before_production
+    manifest['gate']['sha256_after'] = after_gate
+    manifest['gate']['unchanged'] = after_gate == before_gate == manifest['gate']['compiled_sha256']
     manifest['backup']['sha256_after'] = after_backup
     manifest['backup']['unchanged'] = after_backup == before_backup
-    manifest['tracked_files'] = {'count': len(tracked_before), 'changed': tracked_changed}
-    manifest['success'] = bool(success and manifest['production']['unchanged']
+    manifest['tracked_files'] = {'count': len(tracked_before), 'changed': tracked_changed,
+                                 'missing_at_start': [p for p, value in tracked_before.items() if value is None]}
+    manifest['success'] = bool(success and manifest['production']['unchanged'] and manifest['gate']['unchanged']
                                and manifest['backup']['unchanged'] and not tracked_changed)
     write(out / 'manifest.json', json.dumps(manifest, indent=2))
     print('TRACKED FILES CHECKED=' + str(len(tracked_before)) + ' CHANGED=' + str(tracked_changed))
-    print('PRODUCTION AND BACKUP UNCHANGED=' + str(manifest['production']['unchanged']
-                                                  and manifest['backup']['unchanged']))
+    print('PRODUCTION, GATE AND BACKUP UNCHANGED=' + str(manifest['production']['unchanged']
+                                                       and manifest['gate']['unchanged'] and manifest['backup']['unchanged']))
     print('MANIFEST ' + str(out / 'manifest.json'))
     print('OFFLINE ONLY: doubles are not Unity, not the Oculus Interaction SDK and not XR input.')
     print('P1.2C IMPLEMENTATION CHECK | RUNTIME VALIDATION PENDING')
