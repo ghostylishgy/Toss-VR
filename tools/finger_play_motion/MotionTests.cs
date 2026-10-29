@@ -59,6 +59,7 @@ namespace Toss.Coin
             Case("Toss drop and no intent preserve old release", TossNoIntent);
             Case("Toss Palm distance and gaze excluded", TossExcludedSources);
             Case("Toss raw source chain and selection prerequisites", TossSelectionPrerequisites);
+            Case("selection conflict cancels secondary and never releases into remaining selection", TossSelectionConflict);
             Case("Toss geometric pinch lead and staggered release edges", TossStaggeredPinch);
             Case("Toss final release and pending pose discontinuity", TossReleasePoseSafety);
             Case("Toss raw invalid despite valid fallback Hand", TossInvalidRaw);
@@ -819,6 +820,75 @@ namespace Toss.Coin
                 ReleaseToss(r);
                 TossNextFrame(r);
                 Check(TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0, "repair without a new grab cannot create Toss");
+            }
+        }
+
+        private static void TossSelectionConflict()
+        {
+            foreach (bool tossEnabled in new[] { false, true })
+            foreach (bool cancellationRemovesSelection in new[] { false, true })
+            {
+                var r = new TossRig();
+                r.H._enableToss = tossEnabled;
+                SelectToss(r);
+                for (int i = 0; i < 8; i++) TossMotion(r, Vector3.up);
+                var secondary = new DistanceHandGrabInteractor { Identifier = Owner + 1, State = InteractorState.Select };
+                var target = new DistanceHandGrabInteractable
+                {
+                    PointableElement = r.H._grabbable,
+                    SelectingInteractorViews = new[] { secondary }
+                };
+                r.H.Children = new object[] { r.Target, target };
+                r.H._grabbable.SelectingPoints.Add(r.H.transform.GetPose());
+                r.H._grabbable.SyntheticCancelRemovesSelection = false;
+                int cancellations = 0;
+                r.H.Unsubscribe();
+                // Supply membership changes and nested terminals explicitly, not a simulated SDK.
+                r.H._grabbable.WhenPointerEventRaised += e =>
+                {
+                    if (e.Type != PointerEventType.Cancel || e.Identifier != secondary.Identifier) return;
+                    cancellations++;
+                    if (cancellationRemovesSelection)
+                    {
+                        r.H._grabbable.SelectingPoints.RemoveAt(1);
+                        target.SelectingInteractorViews = Array.Empty<IInteractorView>();
+                    }
+                    r.H.HandlePointerEvent(new PointerEvent(secondary.Identifier, PointerEventType.Unselect, e.Pose));
+                };
+                r.H.Subscribe();
+                r.H._grabbable.ProcessPointerEvent(new PointerEvent(secondary.Identifier, PointerEventType.Select, r.H.transform.GetPose()));
+                Check(cancellations == 1, "secondary Select requests one SDK cancellation for the rejected identifier");
+                Check(r.H._currentOwnerId == Owner && r.H._state == FingerPlayState.Grabbed,
+                    "secondary cancellation and nested Unselect preserve original owner");
+                Check(r.H.GetSelectingPointsCount() == (cancellationRemovesSelection ? 1 : 2),
+                    "only supplied secondary membership is removed");
+                Check(r.H._rigidbody.isKinematic && !r.H._coinPresenter.enabled, "conflict never takes SDK transform authority");
+
+                r.H._grabbable.SelectingPoints.RemoveAt(0);
+                r.Target.SelectingInteractorViews = Array.Empty<IInteractorView>();
+                r.Source.SelectedInteractable = null;
+                r.H._grabbable.ProcessPointerEvent(new PointerEvent(Owner, PointerEventType.Unselect, r.H.transform.GetPose()));
+                if (!cancellationRemovesSelection)
+                {
+                    Check(r.H._state == FingerPlayState.Settled && r.H._currentOwnerId == -1 && r.H._selectionRecoveryLocked,
+                        "remaining selection forces locked recovery instead of residual physics");
+                    Check(r.H._rigidbody.isKinematic && !r.H._rigidbody.useGravity && !r.H.Filter(secondary.gameObject),
+                        "remaining selection cannot coexist with dynamic authority or admit another owner");
+                    Check(TossEvents(r, "dynamic-transition") == 0 && TossEvents(r, "SETTLE_BEGIN") == 0,
+                        "no physics launch while another SDK selector remains");
+                    r.H._grabbable.SelectingPoints.Clear();
+                    target.SelectingInteractorViews = Array.Empty<IInteractorView>();
+                    r.H.Update();
+                    Check(r.H.Filter(r.Source.gameObject), "actual selection clearing releases recovery lock");
+                }
+                else
+                {
+                    Check(!r.H._selectionRecoveryLocked, "successful cancellation does not strand recovery lock");
+                    Check(r.H._state == (tossEnabled ? FingerPlayState.Settled : FingerPlayState.Settling),
+                        "clean owner release retains legacy settle or conservative Toss conflict cancellation");
+                }
+                Check(TossEvents(r, "TOSS_PENDING") == 0 && TossEvents(r, "TOSS_FLIGHT_BEGIN") == 0,
+                    "selection conflict cannot become a Toss");
             }
         }
 

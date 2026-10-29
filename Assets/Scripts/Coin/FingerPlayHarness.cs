@@ -509,11 +509,7 @@ namespace Toss.Coin
         }
 
         #region IGameObjectFilter (SDK Selection Boundary Enforcement)
-        /// <summary>
-        /// SDK-level filter called by Interactable.CanBeSelectedBy.
-        /// Enforces single-owner policy: rejects any secondary interactor before it can select Grabbable.
-        /// Follows strict priority order to prevent multi-owner edge cases.
-        /// </summary>
+        /// <summary>Filters candidates; cached SDK candidates are also checked at Select.</summary>
         public bool Filter(GameObject interactorGo)
         {
             if (_state == FingerPlayState.ReleasePending || _state == FingerPlayState.Flight) return false;
@@ -624,6 +620,8 @@ namespace Toss.Coin
                     if (_currentOwnerId != -1 && evt.Identifier != _currentOwnerId)
                     {
                         Debug.LogWarning($"[FingerPlayHarness] Secondary grab from pointer {evt.Identifier} rejected; owner is {_currentOwnerId}.");
+                        // Cached SDK candidates can bypass Filter after another hand acquires the coin.
+                        _grabbable.ProcessPointerEvent(new PointerEvent(evt.Identifier, PointerEventType.Cancel, evt.Pose));
                         return;
                     }
                     OnGrabBegin(evt);
@@ -824,6 +822,11 @@ namespace Toss.Coin
         private void OnGrabEnd(PointerEvent evt)
         {
             if (_state == FingerPlayState.ReleasePending || _state == FingerPlayState.Flight) return;
+            if (GetSelectingPointsCount() > 0)
+            {
+                OnGrabCancel(evt);
+                return;
+            }
             if (_enableToss && _tossSource != null && evt.Identifier == _tossOwnerId)
             {
                 if (_tossReleaseConsumed) return;
